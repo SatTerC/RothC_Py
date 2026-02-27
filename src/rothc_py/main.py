@@ -1,14 +1,14 @@
 ######################################################################################################
 # program RothC_Python
-import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+data_dir = Path(__file__).parent / "data"
+input_file = data_dir / "example_inputs.dat"
 
-print(os.getcwd())
-os.chdir("INPUT DIRECTORY PATH")  # Change to path of RothC_input.dat
-print(os.getcwd())
+print(Path.cwd())
 
 # set initial pool values
 DPM = [0.0]
@@ -28,8 +28,8 @@ SWC = [0.0]
 TOC1 = 0.0
 
 # read in RothC input data file
-df_head = df_head = pd.read_csv(
-    "RothC_input.dat",
+df_head = pd.read_csv(
+    input_file,
     skiprows=3,
     header=0,
     nrows=1,
@@ -41,7 +41,7 @@ depth = df_head.loc[0, "depth"]
 IOM = [df_head.loc[0, "iom"]]
 nsteps = df_head.loc[0, "nsteps"]
 df = pd.read_csv(
-    "RothC_input.dat", skiprows=6, header=0, index_col=None, delim_whitespace=True
+    input_file, skiprows=6, header=0, index_col=None, delim_whitespace=True
 )
 print(df)
 df.columns = [
