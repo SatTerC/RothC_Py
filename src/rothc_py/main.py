@@ -162,6 +162,7 @@ def decomp(
     RPM_Rage: NDArray[np.float64],
     BIO_Rage: NDArray[np.float64],
     HUM_Rage: NDArray[np.float64],
+    IOM_Rage: NDArray[np.float64],
     Total_Rage: NDArray[np.float64],
     modernC: float,
     RateM: float,
@@ -188,13 +189,19 @@ def decomp(
         RPM_Rage: Radiocarbon age of RPM pool (years), modified in place.
         BIO_Rage: Radiocarbon age of BIO pool (years), modified in place.
         HUM_Rage: Radiocarbon age of HUM pool (years), modified in place.
+        IOM_Rage: Radiocarbon age of IOM pool (years), modified in place.
         Total_Rage: Radiocarbon age of total SOC (years), modified in place.
         modernC: Fraction of modern carbon (0.0 to 1.0).
-        RateM: Combined rate modifier (product of temperature, moisture, PC).
         clay: Clay content of soil (%).
+        depth: Depth of topsoil (cm).
+        TEMP: Monthly mean air temperature (°C).
+        RAIN: Monthly rainfall (mm).
+        PEVAP: Open pan evaporation (mm).
+        PC: Plant cover (0 = no cover, 1 = covered).
+        DPM_RPM: Ratio of DPM to RPM in plant inputs.
         C_Inp: Plant carbon input (t C/ha).
         FYM_Inp: Farmyard manure carbon input (t C/ha).
-        DPM_RPM: Ratio of DPM to RPM in plant inputs.
+        SWC: Soil water content/deficit (mm), modified in place.
     """
     zero = 0e-8
     # rate constant are params so don't need to be passed
@@ -343,6 +350,7 @@ def RothC(
     RPM_Rage: NDArray[np.float64],
     BIO_Rage: NDArray[np.float64],
     HUM_Rage: NDArray[np.float64],
+    IOM_Rage: NDArray[np.float64],
     Total_Rage: NDArray[np.float64],
     modernC: float,
     clay: float,
@@ -373,18 +381,13 @@ def RothC(
         RPM_Rage: Radiocarbon age of RPM pool (years), modified in place.
         BIO_Rage: Radiocarbon age of BIO pool (years), modified in place.
         HUM_Rage: Radiocarbon age of HUM pool (years), modified in place.
+        IOM_Rage: Radiocarbon age of IOM pool (years), modified in place.
         Total_Rage: Radiocarbon age of total SOC (years), modified in place.
         modernC: Fraction of modern carbon (0.0 to 1.0).
         clay: Clay content of soil (%).
-        depth: Depth of topsoil (cm).
-        TEMP: Monthly mean air temperature (°C).
-        RAIN: Monthly rainfall (mm).
-        PEVAP: Open pan evaporation (mm).
-        PC: Plant cover (0 = no cover, 1 = covered).
-        DPM_RPM: Ratio of DPM to RPM in plant inputs.
         C_Inp: Plant carbon input (t C/ha).
         FYM_Inp: Farmyard manure carbon input (t C/ha).
-        SWC: Soil water content/deficit (mm), modified in place.
+        DPM_RPM: Ratio of DPM to RPM in plant inputs.
     """
     # Calculate RMFs
     RM_TMP = RMF_Tmp(TEMP)
@@ -406,6 +409,7 @@ def RothC(
         RPM_Rage,
         BIO_Rage,
         HUM_Rage,
+        IOM_Rage,
         Total_Rage,
         modernC,
         RateM,
@@ -418,206 +422,199 @@ def RothC(
     return
 
 
-######################################################################################################
-# program RothC_Python
+def main(input_path: Path | str, output_dir: Path | str) -> None:
+    """Run the RothC carbon model.
 
-data_dir = Path(__file__).parent / "data"
-input_file = data_dir / "example_inputs.dat"
+    Args:
+        input_path: Path to the input data file.
+        output_dir: Directory where output CSV files will be written.
+    """
+    input_path = Path(input_path)
+    output_dir = Path(output_dir)
 
-# set initial pool values
-DPM = [0.0]
-RPM = [0.0]
-BIO = [0.0]
-HUM = [0.0]
-SOC = [0.0]
+    ######################################################################################################
+    # program RothC_Python
 
-DPM_Rage = [0.0]
-RPM_Rage = [0.0]
-BIO_Rage = [0.0]
-HUM_Rage = [0.0]
-IOM_Rage = [50000.0]
+    # set initial pool values
+    DPM = [0.0]
+    RPM = [0.0]
+    BIO = [0.0]
+    HUM = [0.0]
+    SOC = [0.0]
 
-# set initial soil water content (deficit)
-SWC = [0.0]
-TOC1 = 0.0
+    DPM_Rage = [0.0]
+    RPM_Rage = [0.0]
+    BIO_Rage = [0.0]
+    HUM_Rage = [0.0]
+    IOM_Rage = [50000.0]
 
-# read in RothC input data file
-df_head = pd.read_csv(
-    input_file,
-    skiprows=3,
-    header=0,
-    nrows=1,
-    index_col=None,
-    sep=r"\s+",
-)
-clay = df_head.loc[0, "clay"]
-depth = df_head.loc[0, "depth"]
-IOM = [df_head.loc[0, "iom"]]
-nsteps = df_head.loc[0, "nsteps"]
-df = pd.read_csv(input_file, skiprows=6, header=0, index_col=None, sep=r"\s+")
-print(df)
-df.columns = [
-    "t_year",
-    "t_month",
-    "t_mod",
-    "t_tmp",
-    "t_rain",
-    "t_evap",
-    "t_C_Inp",
-    "t_FYM_Inp",
-    "t_PC",
-    "t_DPM_RPM",
-]
+    # set initial soil water content (deficit)
+    SWC = [0.0]
+    TOC1 = 0.0
 
-
-# run RothC to equilibrium
-k = -1
-j = -1
-
-SOC[0] = DPM[0] + RPM[0] + BIO[0] + HUM[0] + IOM[0]
-
-print(j, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0])
-
-timeFact = 12
-
-test = 100.0
-while test > 1e-6:
-    k = k + 1
-    j = j + 1
-
-    if k == timeFact:
-        k = 0
-
-    TEMP = df.t_tmp[k]
-    RAIN = df.t_rain[k]
-    PEVAP = df.t_evap[k]
-
-    PC = df.t_PC[k]
-    DPM_RPM = df.t_DPM_RPM[k]
-
-    C_Inp = df.t_C_Inp[k]
-    FYM_Inp = df.t_FYM_Inp[k]
-
-    modernC = df.t_mod[k] / 100.0
-
-    Total_Rage = [0.0]
-
-    RothC(
-        timeFact,
-        DPM,
-        RPM,
-        BIO,
-        HUM,
-        IOM,
-        SOC,
-        DPM_Rage,
-        RPM_Rage,
-        BIO_Rage,
-        HUM_Rage,
-        Total_Rage,
-        modernC,
-        clay,
-        depth,
-        TEMP,
-        RAIN,
-        PEVAP,
-        PC,
-        DPM_RPM,
-        C_Inp,
-        FYM_Inp,
-        SWC,
+    # read in RothC input data file
+    df_head = pd.read_csv(
+        input_path,
+        skiprows=3,
+        header=0,
+        nrows=1,
+        index_col=None,
+        sep=r"\s+",
     )
+    clay = df_head.loc[0, "clay"]
+    depth = df_head.loc[0, "depth"]
+    IOM = [df_head.loc[0, "iom"]]
+    nsteps = df_head.loc[0, "nsteps"]
+    df = pd.read_csv(input_path, skiprows=6, header=0, index_col=None, sep=r"\s+")
+    print(df)
+    df.columns = [
+        "t_year",
+        "t_month",
+        "t_mod",
+        "t_tmp",
+        "t_rain",
+        "t_evap",
+        "t_C_Inp",
+        "t_FYM_Inp",
+        "t_PC",
+        "t_DPM_RPM",
+    ]
 
-    # each a year calculates the difference between previous year and current year (counter =12 monthly model)
-    if np.mod(k + 1, timeFact) == 0:
-        TOC0 = TOC1
-        TOC1 = DPM[0] + RPM[0] + BIO[0] + HUM[0]
-        test = abs(TOC1 - TOC0)
+    # run RothC to equilibrium
+    k = -1
+    j = -1
 
-Total_Delta = (np.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
+    SOC[0] = DPM[0] + RPM[0] + BIO[0] + HUM[0] + IOM[0]
 
-print(j, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0], Total_Delta)
+    print(j, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0])
 
-year_list = [[1, j + 1, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0], Total_Delta[0]]]
+    timeFact = 12
 
-month_list = []
+    test = 100.0
+    while test > 1e-6:
+        k = k + 1
+        j = j + 1
 
-for i in range(timeFact, nsteps):
-    TEMP = df.t_tmp[i]
-    RAIN = df.t_rain[i]
-    PEVAP = df.t_evap[i]
+        if k == timeFact:
+            k = 0
 
-    PC = df.t_PC[i]
-    DPM_RPM = df.t_DPM_RPM[i]
+        TEMP = df.t_tmp[k]
+        RAIN = df.t_rain[k]
+        PEVAP = df.t_evap[k]
 
-    C_Inp = df.t_C_Inp[i]
-    FYM_Inp = df.t_FYM_Inp[i]
+        PC = df.t_PC[k]
+        DPM_RPM = df.t_DPM_RPM[k]
 
-    modernC = df.t_mod[i] / 100.0
+        C_Inp = df.t_C_Inp[k]
+        FYM_Inp = df.t_FYM_Inp[k]
 
-    RothC(
-        timeFact,
-        DPM,
-        RPM,
-        BIO,
-        HUM,
-        IOM,
-        SOC,
-        DPM_Rage,
-        RPM_Rage,
-        BIO_Rage,
-        HUM_Rage,
-        Total_Rage,
-        modernC,
-        clay,
-        depth,
-        TEMP,
-        RAIN,
-        PEVAP,
-        PC,
-        DPM_RPM,
-        C_Inp,
-        FYM_Inp,
-        SWC,
-    )
+        modernC = df.t_mod[k] / 100.0
+
+        Total_Rage = [0.0]
+
+        RothC(
+            timeFact,
+            DPM,
+            RPM,
+            BIO,
+            HUM,
+            IOM,
+            SOC,
+            DPM_Rage,
+            RPM_Rage,
+            BIO_Rage,
+            IOM_Rage,
+            HUM_Rage,
+            Total_Rage,
+            modernC,
+            clay,
+            depth,
+            TEMP,
+            RAIN,
+            PEVAP,
+            PC,
+            DPM_RPM,
+            C_Inp,
+            FYM_Inp,
+            SWC,
+        )
+
+        # each a year calculates the difference between previous year and current year (counter =12 monthly model)
+        if np.mod(k + 1, timeFact) == 0:
+            TOC0 = TOC1
+            TOC1 = DPM[0] + RPM[0] + BIO[0] + HUM[0]
+            test = abs(TOC1 - TOC0)
 
     Total_Delta = (np.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
 
-    print(
-        C_Inp,
-        FYM_Inp,
-        TEMP,
-        RAIN,
-        PEVAP,
-        SWC[0],
-        PC,
-        DPM[0],
-        RPM[0],
-        BIO[0],
-        HUM[0],
-        IOM[0],
-        SOC[0],
-    )
+    print(j, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0], Total_Delta)
 
-    month_list.insert(
-        i - timeFact,
-        [
-            df.loc[i, "t_year"],
-            df.loc[i, "t_month"],
+    year_list = [
+        [1, j + 1, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0], Total_Delta[0]]
+    ]
+
+    month_list = []
+
+    for i in range(timeFact, nsteps):
+        TEMP = df.t_tmp[i]
+        RAIN = df.t_rain[i]
+        PEVAP = df.t_evap[i]
+
+        PC = df.t_PC[i]
+        DPM_RPM = df.t_DPM_RPM[i]
+
+        C_Inp = df.t_C_Inp[i]
+        FYM_Inp = df.t_FYM_Inp[i]
+
+        modernC = df.t_mod[i] / 100.0
+
+        RothC(
+            timeFact,
+            DPM,
+            RPM,
+            BIO,
+            HUM,
+            IOM,
+            SOC,
+            DPM_Rage,
+            RPM_Rage,
+            BIO_Rage,
+            HUM_Rage,
+            IOM_Rage,
+            Total_Rage,
+            modernC,
+            clay,
+            depth,
+            TEMP,
+            RAIN,
+            PEVAP,
+            PC,
+            DPM_RPM,
+            C_Inp,
+            FYM_Inp,
+            SWC,
+        )
+
+        Total_Delta = (np.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
+
+        print(
+            C_Inp,
+            FYM_Inp,
+            TEMP,
+            RAIN,
+            PEVAP,
+            SWC[0],
+            PC,
             DPM[0],
             RPM[0],
             BIO[0],
             HUM[0],
             IOM[0],
             SOC[0],
-            Total_Delta[0],
-        ],
-    )
+        )
 
-    if df.t_month[i] == timeFact:
-        timeFact_index = int(i / timeFact)
-        year_list.insert(
-            timeFact_index,
+        month_list.insert(
+            i - timeFact,
             [
                 df.loc[i, "t_year"],
                 df.loc[i, "t_month"],
@@ -630,36 +627,60 @@ for i in range(timeFact, nsteps):
                 Total_Delta[0],
             ],
         )
-        print(i, DPM, RPM, BIO, HUM, IOM, SOC, Total_Delta)
 
-output_years = pd.DataFrame(
-    year_list,
-    columns=[
-        "Year",
-        "Month",
-        "DPM_t_C_ha",
-        "RPM_t_C_ha",
-        "BIO_t_C_ha",
-        "HUM_t_C_ha",
-        "IOM_t_C_ha",
-        "SOC_t_C_ha",
-        "deltaC",
-    ],
-)
-output_months = pd.DataFrame(
-    month_list,
-    columns=[
-        "Year",
-        "Month",
-        "DPM_t_C_ha",
-        "RPM_t_C_ha",
-        "BIO_t_C_ha",
-        "HUM_t_C_ha",
-        "IOM_t_C_ha",
-        "SOC_t_C_ha",
-        "deltaC",
-    ],
-)
+        if df.t_month[i] == timeFact:
+            timeFact_index = int(i / timeFact)
+            year_list.insert(
+                timeFact_index,
+                [
+                    df.loc[i, "t_year"],
+                    df.loc[i, "t_month"],
+                    DPM[0],
+                    RPM[0],
+                    BIO[0],
+                    HUM[0],
+                    IOM[0],
+                    SOC[0],
+                    Total_Delta[0],
+                ],
+            )
+            print(i, DPM, RPM, BIO, HUM, IOM, SOC, Total_Delta)
 
-output_years.to_csv("year_results.csv", index=False)
-output_months.to_csv("month_results.csv", index=False)
+    output_years = pd.DataFrame(
+        year_list,
+        columns=[
+            "Year",
+            "Month",
+            "DPM_t_C_ha",
+            "RPM_t_C_ha",
+            "BIO_t_C_ha",
+            "HUM_t_C_ha",
+            "IOM_t_C_ha",
+            "SOC_t_C_ha",
+            "deltaC",
+        ],
+    )
+    output_months = pd.DataFrame(
+        month_list,
+        columns=[
+            "Year",
+            "Month",
+            "DPM_t_C_ha",
+            "RPM_t_C_ha",
+            "BIO_t_C_ha",
+            "HUM_t_C_ha",
+            "IOM_t_C_ha",
+            "SOC_t_C_ha",
+            "deltaC",
+        ],
+    )
+
+    output_years.to_csv(output_dir / "year_results.csv", index=False)
+    output_months.to_csv(output_dir / "month_results.csv", index=False)
+
+
+if __name__ == "__main__":
+    data_dir = Path(__file__).parent / "data"
+    input_path = data_dir / "example_inputs.dat"
+    output_dir = Path.cwd()
+    main(input_path, output_dir)
