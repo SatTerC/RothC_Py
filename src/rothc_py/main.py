@@ -53,10 +53,21 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
+from numpy.typing import NDArray
 
 
-# Calculates the rate modifying factor for temperature (RMF_Tmp)
-def RMF_Tmp(TEMP):
+def RMF_Tmp(TEMP: float) -> float:
+    """Calculate the rate modifying factor for temperature.
+
+    Uses the Jenkinson equation to calculate the temperature rate modifier
+    based on monthly mean air temperature.
+
+    Args:
+        TEMP: Monthly mean air temperature (°C).
+
+    Returns:
+        Rate modifying factor for temperature (typically 0.0 to ~5.0).
+    """
     if TEMP < -5.0:
         RM_TMP = 0.0
     else:
@@ -65,8 +76,31 @@ def RMF_Tmp(TEMP):
     return RM_TMP
 
 
-# Calculates the rate modifying factor for moisture (RMF_Moist)
-def RMF_Moist(RAIN, PEVAP, clay, depth, PC, SWC):
+def RMF_Moist(
+    RAIN: float,
+    PEVAP: float,
+    clay: float,
+    depth: float,
+    PC: float,
+    SWC: NDArray[np.float64],
+) -> float:
+    """Calculate the rate modifying factor for moisture.
+
+    Calculates soil moisture deficit and derives a rate modifier based on
+    the soil water balance, accounting for rainfall, evaporation, and
+    plant cover.
+
+    Args:
+        RAIN: Monthly rainfall (mm).
+        PEVAP: Open pan evaporation (mm).
+        clay: Clay content of soil (%).
+        depth: Depth of topsoil (cm).
+        PC: Plant cover (0 = no cover, 1 = covered).
+        SWC: Soil water content/deficit (modified in place).
+
+    Returns:
+        Rate modifying factor for moisture (0.2 to 1.0).
+    """
     RMFMax = 1.0
     RMFMin = 0.2
 
@@ -96,8 +130,18 @@ def RMF_Moist(RAIN, PEVAP, clay, depth, PC, SWC):
     return RM_Moist
 
 
-# Calculates the plant retainment modifying factor (RMF_PC)
-def RMF_PC(PC):
+def RMF_PC(PC: float) -> float:
+    """Calculate the plant retainment modifying factor.
+
+    Returns a reduced rate when the soil is covered by vegetation,
+    representing reduced decomposition due to litter retention.
+
+    Args:
+        PC: Plant cover (0 = no cover/bare soil, 1 = covered by crop).
+
+    Returns:
+        Rate modifying factor: 1.0 for bare soil, 0.6 for covered soil.
+    """
     if PC == 0:
         RM_PC = 1.0
     else:
@@ -106,27 +150,52 @@ def RMF_PC(PC):
     return RM_PC
 
 
-# Calculates the decomposition and radiocarbon
 def decomp(
-    timeFact,
-    DPM,
-    RPM,
-    BIO,
-    HUM,
-    IOM,
-    SOC,
-    DPM_Rage,
-    RPM_Rage,
-    BIO_Rage,
-    HUM_Rage,
-    Total_Rage,
-    modernC,
-    RateM,
-    clay,
-    C_Inp,
-    FYM_Inp,
-    DPM_RPM,
-):
+    timeFact: float,
+    DPM: NDArray[np.float64],
+    RPM: NDArray[np.float64],
+    BIO: NDArray[np.float64],
+    HUM: NDArray[np.float64],
+    IOM: NDArray[np.float64],
+    SOC: NDArray[np.float64],
+    DPM_Rage: NDArray[np.float64],
+    RPM_Rage: NDArray[np.float64],
+    BIO_Rage: NDArray[np.float64],
+    HUM_Rage: NDArray[np.float64],
+    Total_Rage: NDArray[np.float64],
+    modernC: float,
+    RateM: float,
+    clay: float,
+    C_Inp: float,
+    FYM_Inp: float,
+    DPM_RPM: float,
+) -> None:
+    """Calculate decomposition and radiocarbon age for soil carbon pools.
+
+    Performs monthly carbon pool updates including: first-order decay
+    kinetics, carbon flow between pools (DPM, RPM, BIO, HUM), CO2
+    respiration, and radiocarbon age calculations.
+
+    Args:
+        timeFact: Timestep factor (12 for monthly).
+        DPM: Decomposable Plant Material pool (t C/ha), modified in place.
+        RPM: Resistant Plant Material pool (t C/ha), modified in place.
+        BIO: Microbial Biomass pool (t C/ha), modified in place.
+        HUM: Humified Organic Matter pool (t C/ha), modified in place.
+        IOM: Inert Organic Matter pool (t C/ha), modified in place.
+        SOC: Total Soil Organic Carbon (t C/ha), modified in place.
+        DPM_Rage: Radiocarbon age of DPM pool (years), modified in place.
+        RPM_Rage: Radiocarbon age of RPM pool (years), modified in place.
+        BIO_Rage: Radiocarbon age of BIO pool (years), modified in place.
+        HUM_Rage: Radiocarbon age of HUM pool (years), modified in place.
+        Total_Rage: Radiocarbon age of total SOC (years), modified in place.
+        modernC: Fraction of modern carbon (0.0 to 1.0).
+        RateM: Combined rate modifier (product of temperature, moisture, PC).
+        clay: Clay content of soil (%).
+        C_Inp: Plant carbon input (t C/ha).
+        FYM_Inp: Farmyard manure carbon input (t C/ha).
+        DPM_RPM: Ratio of DPM to RPM in plant inputs.
+    """
     zero = 0e-8
     # rate constant are params so don't need to be passed
     DPM_k = 10.0
@@ -263,30 +332,60 @@ def decomp(
 
 
 def RothC(
-    timeFact,
-    DPM,
-    RPM,
-    BIO,
-    HUM,
-    IOM,
-    SOC,
-    DPM_Rage,
-    RPM_Rage,
-    BIO_Rage,
-    HUM_Rage,
-    Total_Rage,
-    modernC,
-    clay,
-    depth,
-    TEMP,
-    RAIN,
-    PEVAP,
-    PC,
-    DPM_RPM,
-    C_Inp,
-    FYM_Inp,
-    SWC,
-):
+    timeFact: float,
+    DPM: NDArray[np.float64],
+    RPM: NDArray[np.float64],
+    BIO: NDArray[np.float64],
+    HUM: NDArray[np.float64],
+    IOM: NDArray[np.float64],
+    SOC: NDArray[np.float64],
+    DPM_Rage: NDArray[np.float64],
+    RPM_Rage: NDArray[np.float64],
+    BIO_Rage: NDArray[np.float64],
+    HUM_Rage: NDArray[np.float64],
+    Total_Rage: NDArray[np.float64],
+    modernC: float,
+    clay: float,
+    depth: float,
+    TEMP: float,
+    RAIN: float,
+    PEVAP: float,
+    PC: float,
+    DPM_RPM: float,
+    C_Inp: float,
+    FYM_Inp: float,
+    SWC: NDArray[np.float64],
+) -> None:
+    """Run one timestep of the RothC carbon model.
+
+    Calculates rate modifying factors for temperature, moisture, and plant
+    cover, then performs decomposition and radiocarbon age updates.
+
+    Args:
+        timeFact: Timestep factor (12 for monthly).
+        DPM: Decomposable Plant Material pool (t C/ha), modified in place.
+        RPM: Resistant Plant Material pool (t C/ha), modified in place.
+        BIO: Microbial Biomass pool (t C/ha), modified in place.
+        HUM: Humified Organic Matter pool (t C/ha), modified in place.
+        IOM: Inert Organic Matter pool (t C/ha), modified in place.
+        SOC: Total Soil Organic Carbon (t C/ha), modified in place.
+        DPM_Rage: Radiocarbon age of DPM pool (years), modified in place.
+        RPM_Rage: Radiocarbon age of RPM pool (years), modified in place.
+        BIO_Rage: Radiocarbon age of BIO pool (years), modified in place.
+        HUM_Rage: Radiocarbon age of HUM pool (years), modified in place.
+        Total_Rage: Radiocarbon age of total SOC (years), modified in place.
+        modernC: Fraction of modern carbon (0.0 to 1.0).
+        clay: Clay content of soil (%).
+        depth: Depth of topsoil (cm).
+        TEMP: Monthly mean air temperature (°C).
+        RAIN: Monthly rainfall (mm).
+        PEVAP: Open pan evaporation (mm).
+        PC: Plant cover (0 = no cover, 1 = covered).
+        DPM_RPM: Ratio of DPM to RPM in plant inputs.
+        C_Inp: Plant carbon input (t C/ha).
+        FYM_Inp: Farmyard manure carbon input (t C/ha).
+        SWC: Soil water content/deficit (mm), modified in place.
+    """
     # Calculate RMFs
     RM_TMP = RMF_Tmp(TEMP)
     RM_Moist = RMF_Moist(RAIN, PEVAP, clay, depth, PC, SWC)
