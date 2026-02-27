@@ -81,8 +81,8 @@ def RMF_Moist(
     clay: float,
     depth: float,
     PC: float,
-    SWC: list[float],
-) -> float:
+    SWC: float,
+) -> tuple[float, float]:
     """Calculate the rate modifying factor for moisture.
 
     Calculates soil moisture deficit and derives a rate modifier based on
@@ -95,10 +95,11 @@ def RMF_Moist(
         clay: Clay content of soil (%).
         depth: Depth of topsoil (cm).
         PC: Plant cover (0 = no cover, 1 = covered).
-        SWC: Soil water content/deficit (modified in place).
+        SWC: Soil water content/deficit (mm).
 
     Returns:
-        Rate modifying factor for moisture (0.2 to 1.0).
+        Tuple of (rate modifying factor for moisture, updated SWC).
+        RM_Moist is typically between 0.2 and 1.0.
     """
     RMFMax = 1.0
     RMFMin = 0.2
@@ -111,22 +112,22 @@ def RMF_Moist(
 
     DF = RAIN - 0.75 * PEVAP
 
-    minSWCDF = min(0.0, SWC[0] + DF)
-    minSMDBareSWC = min(SMDBare, SWC[0])
+    minSWCDF = min(0.0, SWC + DF)
+    minSMDBareSWC = min(SMDBare, SWC)
 
     if PC == 1:
-        SWC[0] = max(SMDMaxAdj, minSWCDF)
+        SWC_new = max(SMDMaxAdj, minSWCDF)
     else:
-        SWC[0] = max(minSMDBareSWC, minSWCDF)
+        SWC_new = max(minSMDBareSWC, minSWCDF)
 
-    if SWC[0] > SMD1bar:
+    if SWC_new > SMD1bar:
         RM_Moist = 1.0
     else:
-        RM_Moist = RMFMin + (RMFMax - RMFMin) * (SMDMaxAdj - SWC[0]) / (
+        RM_Moist = RMFMin + (RMFMax - RMFMin) * (SMDMaxAdj - SWC_new) / (
             SMDMaxAdj - SMD1bar
         )
 
-    return RM_Moist
+    return RM_Moist, SWC_new
 
 
 def RMF_PC(PC: float) -> float:
@@ -151,25 +152,27 @@ def RMF_PC(PC: float) -> float:
 
 def decomp(
     timeFact: float,
-    DPM: list[float],
-    RPM: list[float],
-    BIO: list[float],
-    HUM: list[float],
-    IOM: list[float],
-    SOC: list[float],
-    DPM_Rage: list[float],
-    RPM_Rage: list[float],
-    BIO_Rage: list[float],
-    HUM_Rage: list[float],
-    IOM_Rage: list[float],
-    Total_Rage: list[float],
+    DPM: float,
+    RPM: float,
+    BIO: float,
+    HUM: float,
+    IOM: float,
+    SOC: float,
+    DPM_Rage: float,
+    RPM_Rage: float,
+    BIO_Rage: float,
+    HUM_Rage: float,
+    IOM_Rage: float,
+    Total_Rage: float,
     modernC: float,
     RateM: float,
     clay: float,
     C_Inp: float,
     FYM_Inp: float,
     DPM_RPM: float,
-) -> None:
+) -> tuple[
+    float, float, float, float, float, float, float, float, float, float, float, float
+]:
     """Calculate decomposition and radiocarbon age for soil carbon pools.
 
     Performs monthly carbon pool updates including: first-order decay
@@ -178,29 +181,26 @@ def decomp(
 
     Args:
         timeFact: Timestep factor (12 for monthly).
-        DPM: Decomposable Plant Material pool (t C/ha), modified in place.
-        RPM: Resistant Plant Material pool (t C/ha), modified in place.
-        BIO: Microbial Biomass pool (t C/ha), modified in place.
-        HUM: Humified Organic Matter pool (t C/ha), modified in place.
-        IOM: Inert Organic Matter pool (t C/ha), modified in place.
-        SOC: Total Soil Organic Carbon (t C/ha), modified in place.
-        DPM_Rage: Radiocarbon age of DPM pool (years), modified in place.
-        RPM_Rage: Radiocarbon age of RPM pool (years), modified in place.
-        BIO_Rage: Radiocarbon age of BIO pool (years), modified in place.
-        HUM_Rage: Radiocarbon age of HUM pool (years), modified in place.
-        IOM_Rage: Radiocarbon age of IOM pool (years), modified in place.
-        Total_Rage: Radiocarbon age of total SOC (years), modified in place.
+        DPM: Decomposable Plant Material pool (t C/ha).
+        RPM: Resistant Plant Material pool (t C/ha).
+        BIO: Microbial Biomass pool (t C/ha).
+        HUM: Humified Organic Matter pool (t C/ha).
+        IOM: Inert Organic Matter pool (t C/ha).
+        SOC: Total Soil Organic Carbon (t C/ha).
+        DPM_Rage: Radiocarbon age of DPM pool (years).
+        RPM_Rage: Radiocarbon age of RPM pool (years).
+        BIO_Rage: Radiocarbon age of BIO pool (years).
+        HUM_Rage: Radiocarbon age of HUM pool (years).
+        IOM_Rage: Radiocarbon age of IOM pool (years).
+        Total_Rage: Radiocarbon age of total SOC (years).
         modernC: Fraction of modern carbon (0.0 to 1.0).
         clay: Clay content of soil (%).
-        depth: Depth of topsoil (cm).
-        TEMP: Monthly mean air temperature (°C).
-        RAIN: Monthly rainfall (mm).
-        PEVAP: Open pan evaporation (mm).
-        PC: Plant cover (0 = no cover, 1 = covered).
-        DPM_RPM: Ratio of DPM to RPM in plant inputs.
         C_Inp: Plant carbon input (t C/ha).
         FYM_Inp: Farmyard manure carbon input (t C/ha).
-        SWC: Soil water content/deficit (mm), modified in place.
+        DPM_RPM: Ratio of DPM to RPM in plant inputs.
+
+    Returns:
+        Tuple of (DPM, RPM, BIO, HUM, IOM, SOC, DPM_Rage, RPM_Rage, BIO_Rage, HUM_Rage, IOM_Rage, Total_Rage).
     """
     zero = 0e-8
     # rate constant are params so don't need to be passed
@@ -216,15 +216,15 @@ def decomp(
     exc = math.exp(-conr * tstep)
 
     # decomposition
-    DPM1 = DPM[0] * math.exp(-RateM * DPM_k * tstep)
-    RPM1 = RPM[0] * math.exp(-RateM * RPM_k * tstep)
-    BIO1 = BIO[0] * math.exp(-RateM * BIO_k * tstep)
-    HUM1 = HUM[0] * math.exp(-RateM * HUM_k * tstep)
+    DPM1 = DPM * math.exp(-RateM * DPM_k * tstep)
+    RPM1 = RPM * math.exp(-RateM * RPM_k * tstep)
+    BIO1 = BIO * math.exp(-RateM * BIO_k * tstep)
+    HUM1 = HUM * math.exp(-RateM * HUM_k * tstep)
 
-    DPM_d = DPM[0] - DPM1
-    RPM_d = RPM[0] - RPM1
-    BIO_d = BIO[0] - BIO1
-    HUM_d = HUM[0] - HUM1
+    DPM_d = DPM - DPM1
+    RPM_d = RPM - RPM1
+    BIO_d = BIO - BIO1
+    HUM_d = HUM - HUM1
 
     x = 1.67 * (1.85 + 1.60 * math.exp(-0.0786 * clay))
 
@@ -246,10 +246,10 @@ def decomp(
     HUM_HUM = HUM_d * (0.54 / (x + 1))
 
     # update C pools
-    DPM[0] = DPM1
-    RPM[0] = RPM1
-    BIO[0] = BIO1 + DPM_BIO + RPM_BIO + BIO_BIO + HUM_BIO
-    HUM[0] = HUM1 + DPM_HUM + RPM_HUM + BIO_HUM + HUM_HUM
+    DPM_new = DPM1
+    RPM_new = RPM1
+    BIO_new = BIO1 + DPM_BIO + RPM_BIO + BIO_BIO + HUM_BIO
+    HUM_new = HUM1 + DPM_HUM + RPM_HUM + BIO_HUM + HUM_HUM
 
     # split plant C to DPM and RPM
     PI_C_DPM = DPM_RPM / (DPM_RPM + 1.0) * C_Inp
@@ -261,27 +261,27 @@ def decomp(
     FYM_C_HUM = 0.02 * FYM_Inp
 
     # add Plant C and FYM_C to DPM, RPM and HUM
-    DPM[0] = DPM[0] + PI_C_DPM + FYM_C_DPM
-    RPM[0] = RPM[0] + PI_C_RPM + FYM_C_RPM
-    HUM[0] = HUM[0] + FYM_C_HUM
+    DPM_new = DPM_new + PI_C_DPM + FYM_C_DPM
+    RPM_new = RPM_new + PI_C_RPM + FYM_C_RPM
+    HUM_new = HUM_new + FYM_C_HUM
 
     # calc new ract of each pool
-    DPM_Ract = DPM1 * math.exp(-conr * DPM_Rage[0])
-    RPM_Ract = RPM1 * math.exp(-conr * RPM_Rage[0])
+    DPM_Ract = DPM1 * math.exp(-conr * DPM_Rage)
+    RPM_Ract = RPM1 * math.exp(-conr * RPM_Rage)
 
-    BIO_Ract = BIO1 * math.exp(-conr * BIO_Rage[0])
-    DPM_BIO_Ract = DPM_BIO * math.exp(-conr * DPM_Rage[0])
-    RPM_BIO_Ract = RPM_BIO * math.exp(-conr * RPM_Rage[0])
-    BIO_BIO_Ract = BIO_BIO * math.exp(-conr * BIO_Rage[0])
-    HUM_BIO_Ract = HUM_BIO * math.exp(-conr * HUM_Rage[0])
+    BIO_Ract = BIO1 * math.exp(-conr * BIO_Rage)
+    DPM_BIO_Ract = DPM_BIO * math.exp(-conr * DPM_Rage)
+    RPM_BIO_Ract = RPM_BIO * math.exp(-conr * RPM_Rage)
+    BIO_BIO_Ract = BIO_BIO * math.exp(-conr * BIO_Rage)
+    HUM_BIO_Ract = HUM_BIO * math.exp(-conr * HUM_Rage)
 
-    HUM_Ract = HUM1 * math.exp(-conr * HUM_Rage[0])
-    DPM_HUM_Ract = DPM_HUM * math.exp(-conr * DPM_Rage[0])
-    RPM_HUM_Ract = RPM_HUM * math.exp(-conr * RPM_Rage[0])
-    BIO_HUM_Ract = BIO_HUM * math.exp(-conr * BIO_Rage[0])
-    HUM_HUM_Ract = HUM_HUM * math.exp(-conr * HUM_Rage[0])
+    HUM_Ract = HUM1 * math.exp(-conr * HUM_Rage)
+    DPM_HUM_Ract = DPM_HUM * math.exp(-conr * DPM_Rage)
+    RPM_HUM_Ract = RPM_HUM * math.exp(-conr * RPM_Rage)
+    BIO_HUM_Ract = BIO_HUM * math.exp(-conr * BIO_Rage)
+    HUM_HUM_Ract = HUM_HUM * math.exp(-conr * HUM_Rage)
 
-    IOM_Ract = IOM[0] * math.exp(-conr * IOM_Rage[0])
+    IOM_Ract = IOM * math.exp(-conr * IOM_Rage)
 
     # assign new C from plant and FYM the correct age
     PI_DPM_Ract = modernC * PI_C_DPM
@@ -304,53 +304,66 @@ def decomp(
         + (HUM_Ract + DPM_HUM_Ract + RPM_HUM_Ract + BIO_HUM_Ract + HUM_HUM_Ract) * exc
     )
 
-    SOC[0] = DPM[0] + RPM[0] + BIO[0] + HUM[0] + IOM[0]
+    SOC_new = DPM_new + RPM_new + BIO_new + HUM_new + IOM
 
     Total_Ract = DPM_Ract_new + RPM_Ract_new + BIO_Ract_new + HUM_Ract_new + IOM_Ract
 
     # calculate rage of each pool.
-    if DPM[0] <= zero:
-        DPM_Rage[0] = zero
+    if DPM_new <= zero:
+        DPM_Rage_new = zero
     else:
-        DPM_Rage[0] = (math.log(DPM[0] / DPM_Ract_new)) / conr
+        DPM_Rage_new = (math.log(DPM_new / DPM_Ract_new)) / conr
 
-    if RPM[0] <= zero:
-        RPM_Rage[0] = zero
+    if RPM_new <= zero:
+        RPM_Rage_new = zero
     else:
-        RPM_Rage[0] = (math.log(RPM[0] / RPM_Ract_new)) / conr
+        RPM_Rage_new = (math.log(RPM_new / RPM_Ract_new)) / conr
 
-    if BIO[0] <= zero:
-        BIO_Rage[0] = zero
+    if BIO_new <= zero:
+        BIO_Rage_new = zero
     else:
-        BIO_Rage[0] = (math.log(BIO[0] / BIO_Ract_new)) / conr
+        BIO_Rage_new = (math.log(BIO_new / BIO_Ract_new)) / conr
 
-    if HUM[0] <= zero:
-        HUM_Rage[0] = zero
+    if HUM_new <= zero:
+        HUM_Rage_new = zero
     else:
-        HUM_Rage[0] = (math.log(HUM[0] / HUM_Ract_new)) / conr
+        HUM_Rage_new = (math.log(HUM_new / HUM_Ract_new)) / conr
 
-    if SOC[0] <= zero:
-        Total_Rage[0] = zero
+    if SOC_new <= zero:
+        Total_Rage_new = zero
     else:
-        Total_Rage[0] = (math.log(SOC[0] / Total_Ract)) / conr
+        Total_Rage_new = (math.log(SOC_new / Total_Ract)) / conr
 
-    return
+    return (
+        DPM_new,
+        RPM_new,
+        BIO_new,
+        HUM_new,
+        IOM,
+        SOC_new,
+        DPM_Rage_new,
+        RPM_Rage_new,
+        BIO_Rage_new,
+        HUM_Rage_new,
+        IOM_Rage,
+        Total_Rage_new,
+    )
 
 
 def RothC(
     timeFact: float,
-    DPM: list[float],
-    RPM: list[float],
-    BIO: list[float],
-    HUM: list[float],
-    IOM: list[float],
-    SOC: list[float],
-    DPM_Rage: list[float],
-    RPM_Rage: list[float],
-    BIO_Rage: list[float],
-    HUM_Rage: list[float],
-    IOM_Rage: list[float],
-    Total_Rage: list[float],
+    DPM: float,
+    RPM: float,
+    BIO: float,
+    HUM: float,
+    IOM: float,
+    SOC: float,
+    DPM_Rage: float,
+    RPM_Rage: float,
+    BIO_Rage: float,
+    HUM_Rage: float,
+    IOM_Rage: float,
+    Total_Rage: float,
     modernC: float,
     clay: float,
     depth: float,
@@ -361,8 +374,22 @@ def RothC(
     DPM_RPM: float,
     C_Inp: float,
     FYM_Inp: float,
-    SWC: list[float],
-) -> None:
+    SWC: float,
+) -> tuple[
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+]:
     """Run one timestep of the RothC carbon model.
 
     Calculates rate modifying factors for temperature, moisture, and plant
@@ -370,33 +397,55 @@ def RothC(
 
     Args:
         timeFact: Timestep factor (12 for monthly).
-        DPM: Decomposable Plant Material pool (t C/ha), modified in place.
-        RPM: Resistant Plant Material pool (t C/ha), modified in place.
-        BIO: Microbial Biomass pool (t C/ha), modified in place.
-        HUM: Humified Organic Matter pool (t C/ha), modified in place.
-        IOM: Inert Organic Matter pool (t C/ha), modified in place.
-        SOC: Total Soil Organic Carbon (t C/ha), modified in place.
-        DPM_Rage: Radiocarbon age of DPM pool (years), modified in place.
-        RPM_Rage: Radiocarbon age of RPM pool (years), modified in place.
-        BIO_Rage: Radiocarbon age of BIO pool (years), modified in place.
-        HUM_Rage: Radiocarbon age of HUM pool (years), modified in place.
-        IOM_Rage: Radiocarbon age of IOM pool (years), modified in place.
-        Total_Rage: Radiocarbon age of total SOC (years), modified in place.
+        DPM: Decomposable Plant Material pool (t C/ha).
+        RPM: Resistant Plant Material pool (t C/ha).
+        BIO: Microbial Biomass pool (t C/ha).
+        HUM: Humified Organic Matter pool (t C/ha).
+        IOM: Inert Organic Matter pool (t C/ha).
+        SOC: Total Soil Organic Carbon (t C/ha).
+        DPM_Rage: Radiocarbon age of DPM pool (years).
+        RPM_Rage: Radiocarbon age of RPM pool (years).
+        BIO_Rage: Radiocarbon age of BIO pool (years).
+        HUM_Rage: Radiocarbon age of HUM pool (years).
+        IOM_Rage: Radiocarbon age of IOM pool (years).
+        Total_Rage: Radiocarbon age of total SOC (years).
         modernC: Fraction of modern carbon (0.0 to 1.0).
         clay: Clay content of soil (%).
+        depth: Depth of topsoil (cm).
+        TEMP: Monthly mean air temperature (°C).
+        RAIN: Monthly rainfall (mm).
+        PEVAP: Open pan evaporation (mm).
+        PC: Plant cover (0 = no cover, 1 = covered).
+        DPM_RPM: Ratio of DPM to RPM in plant inputs.
         C_Inp: Plant carbon input (t C/ha).
         FYM_Inp: Farmyard manure carbon input (t C/ha).
-        DPM_RPM: Ratio of DPM to RPM in plant inputs.
+        SWC: Soil water content/deficit (mm).
+
+    Returns:
+        Tuple of (DPM, RPM, BIO, HUM, IOM, SOC, DPM_Rage, RPM_Rage, BIO_Rage, HUM_Rage, IOM_Rage, Total_Rage, SWC).
     """
     # Calculate RMFs
     RM_TMP = RMF_Tmp(TEMP)
-    RM_Moist = RMF_Moist(RAIN, PEVAP, clay, depth, PC, SWC)
+    RM_Moist, SWC = RMF_Moist(RAIN, PEVAP, clay, depth, PC, SWC)
     RM_PC = RMF_PC(PC)
 
     # Combine RMF's into one.
     RateM = RM_TMP * RM_Moist * RM_PC
 
-    decomp(
+    (
+        DPM,
+        RPM,
+        BIO,
+        HUM,
+        IOM,
+        SOC,
+        DPM_Rage,
+        RPM_Rage,
+        BIO_Rage,
+        HUM_Rage,
+        IOM_Rage,
+        Total_Rage,
+    ) = decomp(
         timeFact,
         DPM,
         RPM,
@@ -418,6 +467,22 @@ def RothC(
         DPM_RPM,
     )
 
+    return (
+        DPM,
+        RPM,
+        BIO,
+        HUM,
+        IOM,
+        SOC,
+        DPM_Rage,
+        RPM_Rage,
+        BIO_Rage,
+        HUM_Rage,
+        IOM_Rage,
+        Total_Rage,
+        SWC,
+    )
+
     return
 
 
@@ -435,20 +500,20 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
     # program RothC_Python
 
     # set initial pool values
-    DPM = [0.0]
-    RPM = [0.0]
-    BIO = [0.0]
-    HUM = [0.0]
-    SOC = [0.0]
+    DPM = 0.0
+    RPM = 0.0
+    BIO = 0.0
+    HUM = 0.0
+    SOC = 0.0
 
-    DPM_Rage = [0.0]
-    RPM_Rage = [0.0]
-    BIO_Rage = [0.0]
-    HUM_Rage = [0.0]
-    IOM_Rage = [50000.0]
+    DPM_Rage = 0.0
+    RPM_Rage = 0.0
+    BIO_Rage = 0.0
+    HUM_Rage = 0.0
+    IOM_Rage = 50000.0
 
     # set initial soil water content (deficit)
-    SWC = [0.0]
+    SWC = 0.0
     TOC1 = 0.0
 
     # read in RothC input data file
@@ -462,7 +527,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
     )
     clay = df_head.loc[0, "clay"]
     depth = df_head.loc[0, "depth"]
-    IOM = [df_head.loc[0, "iom"]]
+    IOM = float(df_head.loc[0, "iom"])
     nsteps = df_head.loc[0, "nsteps"]
     df = pd.read_csv(input_path, skiprows=6, header=0, index_col=None, sep=r"\s+")
     print(df)
@@ -483,9 +548,9 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
     k = -1
     j = -1
 
-    SOC[0] = DPM[0] + RPM[0] + BIO[0] + HUM[0] + IOM[0]
+    SOC = DPM + RPM + BIO + HUM + IOM
 
-    print(j, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0])
+    print(j, DPM, RPM, BIO, HUM, IOM, SOC)
 
     timeFact = 12
 
@@ -509,9 +574,23 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
 
         modernC = df.t_mod[k] / 100.0
 
-        Total_Rage = [0.0]
+        Total_Rage = 0.0
 
-        RothC(
+        (
+            DPM,
+            RPM,
+            BIO,
+            HUM,
+            IOM,
+            SOC,
+            DPM_Rage,
+            RPM_Rage,
+            BIO_Rage,
+            HUM_Rage,
+            IOM_Rage,
+            Total_Rage,
+            SWC,
+        ) = RothC(
             timeFact,
             DPM,
             RPM,
@@ -522,8 +601,8 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             DPM_Rage,
             RPM_Rage,
             BIO_Rage,
-            IOM_Rage,
             HUM_Rage,
+            IOM_Rage,
             Total_Rage,
             modernC,
             clay,
@@ -541,16 +620,14 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         # each a year calculates the difference between previous year and current year (counter =12 monthly model)
         if (k + 1) % timeFact == 0:
             TOC0 = TOC1
-            TOC1 = DPM[0] + RPM[0] + BIO[0] + HUM[0]
+            TOC1 = DPM + RPM + BIO + HUM
             test = abs(TOC1 - TOC0)
 
-    Total_Delta = (math.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
+    Total_Delta = (math.exp(-Total_Rage / 8035.0) - 1.0) * 1000.0
 
-    print(j, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0], Total_Delta)
+    print(j, DPM, RPM, BIO, HUM, IOM, SOC, Total_Delta)
 
-    year_list = [
-        [1, j + 1, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0], Total_Delta[0]]
-    ]
+    year_list = [[1, j + 1, DPM, RPM, BIO, HUM, IOM, SOC, Total_Delta]]
 
     month_list = []
 
@@ -567,7 +644,21 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
 
         modernC = df.t_mod[i] / 100.0
 
-        RothC(
+        (
+            DPM,
+            RPM,
+            BIO,
+            HUM,
+            IOM,
+            SOC,
+            DPM_Rage,
+            RPM_Rage,
+            BIO_Rage,
+            HUM_Rage,
+            IOM_Rage,
+            Total_Rage,
+            SWC,
+        ) = RothC(
             timeFact,
             DPM,
             RPM,
@@ -594,7 +685,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             SWC,
         )
 
-        Total_Delta = (math.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
+        Total_Delta = (math.exp(-Total_Rage / 8035.0) - 1.0) * 1000.0
 
         print(
             C_Inp,
@@ -602,14 +693,14 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             TEMP,
             RAIN,
             PEVAP,
-            SWC[0],
+            SWC,
             PC,
-            DPM[0],
-            RPM[0],
-            BIO[0],
-            HUM[0],
-            IOM[0],
-            SOC[0],
+            DPM,
+            RPM,
+            BIO,
+            HUM,
+            IOM,
+            SOC,
         )
 
         month_list.insert(
@@ -617,13 +708,13 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             [
                 df.loc[i, "t_year"],
                 df.loc[i, "t_month"],
-                DPM[0],
-                RPM[0],
-                BIO[0],
-                HUM[0],
-                IOM[0],
-                SOC[0],
-                Total_Delta[0],
+                DPM,
+                RPM,
+                BIO,
+                HUM,
+                IOM,
+                SOC,
+                Total_Delta,
             ],
         )
 
@@ -634,13 +725,13 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
                 [
                     df.loc[i, "t_year"],
                     df.loc[i, "t_month"],
-                    DPM[0],
-                    RPM[0],
-                    BIO[0],
-                    HUM[0],
-                    IOM[0],
-                    SOC[0],
-                    Total_Delta[0],
+                    DPM,
+                    RPM,
+                    BIO,
+                    HUM,
+                    IOM,
+                    SOC,
+                    Total_Delta,
                 ],
             )
             print(i, DPM, RPM, BIO, HUM, IOM, SOC, Total_Delta)
