@@ -49,6 +49,8 @@
 
 ######################################################################################################################
 
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 
@@ -319,11 +321,9 @@ def RothC(
 
 ######################################################################################################
 # program RothC_Python
-import os
 
-print(os.getcwd())
-os.chdir("INPUT DIRECTORY PATH")  # Change to path of RothC_input.dat
-print(os.getcwd())
+data_dir = Path(__file__).parent / "data"
+input_file = data_dir / "example_inputs.dat"
 
 # set initial pool values
 DPM = [0.0]
@@ -343,21 +343,19 @@ SWC = [0.0]
 TOC1 = 0.0
 
 # read in RothC input data file
-df_head = df_head = pd.read_csv(
-    "RothC_input.dat",
+df_head = pd.read_csv(
+    input_file,
     skiprows=3,
     header=0,
     nrows=1,
     index_col=None,
-    delim_whitespace=True,
+    sep=r"\s+",
 )
 clay = df_head.loc[0, "clay"]
 depth = df_head.loc[0, "depth"]
 IOM = [df_head.loc[0, "iom"]]
 nsteps = df_head.loc[0, "nsteps"]
-df = pd.read_csv(
-    "RothC_input.dat", skiprows=6, header=0, index_col=None, delim_whitespace=True
-)
+df = pd.read_csv(input_file, skiprows=6, header=0, index_col=None, sep=r"\s+")
 print(df)
 df.columns = [
     "t_year",
