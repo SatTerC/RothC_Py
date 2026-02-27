@@ -49,11 +49,10 @@
 
 ######################################################################################################################
 
+import math
 from pathlib import Path
 
 import pandas as pd
-import numpy as np
-from numpy.typing import NDArray
 
 
 def RMF_Tmp(TEMP: float) -> float:
@@ -71,7 +70,7 @@ def RMF_Tmp(TEMP: float) -> float:
     if TEMP < -5.0:
         RM_TMP = 0.0
     else:
-        RM_TMP = 47.91 / (np.exp(106.06 / (TEMP + 18.27)) + 1.0)
+        RM_TMP = 47.91 / (math.exp(106.06 / (TEMP + 18.27)) + 1.0)
 
     return RM_TMP
 
@@ -82,7 +81,7 @@ def RMF_Moist(
     clay: float,
     depth: float,
     PC: float,
-    SWC: NDArray[np.float64],
+    SWC: list[float],
 ) -> float:
     """Calculate the rate modifying factor for moisture.
 
@@ -112,13 +111,13 @@ def RMF_Moist(
 
     DF = RAIN - 0.75 * PEVAP
 
-    minSWCDF = np.min(np.array([0.0, SWC[0] + DF]))
-    minSMDBareSWC = np.min(np.array([SMDBare, SWC[0]]))
+    minSWCDF = min(0.0, SWC[0] + DF)
+    minSMDBareSWC = min(SMDBare, SWC[0])
 
     if PC == 1:
-        SWC[0] = np.max(np.array([SMDMaxAdj, minSWCDF]))
+        SWC[0] = max(SMDMaxAdj, minSWCDF)
     else:
-        SWC[0] = np.max(np.array([minSMDBareSWC, minSWCDF]))
+        SWC[0] = max(minSMDBareSWC, minSWCDF)
 
     if SWC[0] > SMD1bar:
         RM_Moist = 1.0
@@ -152,18 +151,18 @@ def RMF_PC(PC: float) -> float:
 
 def decomp(
     timeFact: float,
-    DPM: NDArray[np.float64],
-    RPM: NDArray[np.float64],
-    BIO: NDArray[np.float64],
-    HUM: NDArray[np.float64],
-    IOM: NDArray[np.float64],
-    SOC: NDArray[np.float64],
-    DPM_Rage: NDArray[np.float64],
-    RPM_Rage: NDArray[np.float64],
-    BIO_Rage: NDArray[np.float64],
-    HUM_Rage: NDArray[np.float64],
-    IOM_Rage: NDArray[np.float64],
-    Total_Rage: NDArray[np.float64],
+    DPM: list[float],
+    RPM: list[float],
+    BIO: list[float],
+    HUM: list[float],
+    IOM: list[float],
+    SOC: list[float],
+    DPM_Rage: list[float],
+    RPM_Rage: list[float],
+    BIO_Rage: list[float],
+    HUM_Rage: list[float],
+    IOM_Rage: list[float],
+    Total_Rage: list[float],
     modernC: float,
     RateM: float,
     clay: float,
@@ -210,24 +209,24 @@ def decomp(
     BIO_k = 0.66
     HUM_k = 0.02
 
-    conr = np.log(2.0) / 5568.0
+    conr = math.log(2.0) / 5568.0
 
     tstep = 1.0 / timeFact  # monthly 1/12, or daily 1/365
 
-    exc = np.exp(-conr * tstep)
+    exc = math.exp(-conr * tstep)
 
     # decomposition
-    DPM1 = DPM[0] * np.exp(-RateM * DPM_k * tstep)
-    RPM1 = RPM[0] * np.exp(-RateM * RPM_k * tstep)
-    BIO1 = BIO[0] * np.exp(-RateM * BIO_k * tstep)
-    HUM1 = HUM[0] * np.exp(-RateM * HUM_k * tstep)
+    DPM1 = DPM[0] * math.exp(-RateM * DPM_k * tstep)
+    RPM1 = RPM[0] * math.exp(-RateM * RPM_k * tstep)
+    BIO1 = BIO[0] * math.exp(-RateM * BIO_k * tstep)
+    HUM1 = HUM[0] * math.exp(-RateM * HUM_k * tstep)
 
     DPM_d = DPM[0] - DPM1
     RPM_d = RPM[0] - RPM1
     BIO_d = BIO[0] - BIO1
     HUM_d = HUM[0] - HUM1
 
-    x = 1.67 * (1.85 + 1.60 * np.exp(-0.0786 * clay))
+    x = 1.67 * (1.85 + 1.60 * math.exp(-0.0786 * clay))
 
     # proportion C from each pool into CO2, BIO and HUM
     DPM_co2 = DPM_d * (x / (x + 1))
@@ -267,22 +266,22 @@ def decomp(
     HUM[0] = HUM[0] + FYM_C_HUM
 
     # calc new ract of each pool
-    DPM_Ract = DPM1 * np.exp(-conr * DPM_Rage[0])
-    RPM_Ract = RPM1 * np.exp(-conr * RPM_Rage[0])
+    DPM_Ract = DPM1 * math.exp(-conr * DPM_Rage[0])
+    RPM_Ract = RPM1 * math.exp(-conr * RPM_Rage[0])
 
-    BIO_Ract = BIO1 * np.exp(-conr * BIO_Rage[0])
-    DPM_BIO_Ract = DPM_BIO * np.exp(-conr * DPM_Rage[0])
-    RPM_BIO_Ract = RPM_BIO * np.exp(-conr * RPM_Rage[0])
-    BIO_BIO_Ract = BIO_BIO * np.exp(-conr * BIO_Rage[0])
-    HUM_BIO_Ract = HUM_BIO * np.exp(-conr * HUM_Rage[0])
+    BIO_Ract = BIO1 * math.exp(-conr * BIO_Rage[0])
+    DPM_BIO_Ract = DPM_BIO * math.exp(-conr * DPM_Rage[0])
+    RPM_BIO_Ract = RPM_BIO * math.exp(-conr * RPM_Rage[0])
+    BIO_BIO_Ract = BIO_BIO * math.exp(-conr * BIO_Rage[0])
+    HUM_BIO_Ract = HUM_BIO * math.exp(-conr * HUM_Rage[0])
 
-    HUM_Ract = HUM1 * np.exp(-conr * HUM_Rage[0])
-    DPM_HUM_Ract = DPM_HUM * np.exp(-conr * DPM_Rage[0])
-    RPM_HUM_Ract = RPM_HUM * np.exp(-conr * RPM_Rage[0])
-    BIO_HUM_Ract = BIO_HUM * np.exp(-conr * BIO_Rage[0])
-    HUM_HUM_Ract = HUM_HUM * np.exp(-conr * HUM_Rage[0])
+    HUM_Ract = HUM1 * math.exp(-conr * HUM_Rage[0])
+    DPM_HUM_Ract = DPM_HUM * math.exp(-conr * DPM_Rage[0])
+    RPM_HUM_Ract = RPM_HUM * math.exp(-conr * RPM_Rage[0])
+    BIO_HUM_Ract = BIO_HUM * math.exp(-conr * BIO_Rage[0])
+    HUM_HUM_Ract = HUM_HUM * math.exp(-conr * HUM_Rage[0])
 
-    IOM_Ract = IOM[0] * np.exp(-conr * IOM_Rage[0])
+    IOM_Ract = IOM[0] * math.exp(-conr * IOM_Rage[0])
 
     # assign new C from plant and FYM the correct age
     PI_DPM_Ract = modernC * PI_C_DPM
@@ -313,45 +312,45 @@ def decomp(
     if DPM[0] <= zero:
         DPM_Rage[0] = zero
     else:
-        DPM_Rage[0] = (np.log(DPM[0] / DPM_Ract_new)) / conr
+        DPM_Rage[0] = (math.log(DPM[0] / DPM_Ract_new)) / conr
 
     if RPM[0] <= zero:
         RPM_Rage[0] = zero
     else:
-        RPM_Rage[0] = (np.log(RPM / RPM_Ract_new)) / conr
+        RPM_Rage[0] = (math.log(RPM[0] / RPM_Ract_new)) / conr
 
     if BIO[0] <= zero:
         BIO_Rage[0] = zero
     else:
-        BIO_Rage[0] = (np.log(BIO / BIO_Ract_new)) / conr
+        BIO_Rage[0] = (math.log(BIO[0] / BIO_Ract_new)) / conr
 
     if HUM[0] <= zero:
         HUM_Rage[0] = zero
     else:
-        HUM_Rage[0] = (np.log(HUM / HUM_Ract_new)) / conr
+        HUM_Rage[0] = (math.log(HUM[0] / HUM_Ract_new)) / conr
 
     if SOC[0] <= zero:
         Total_Rage[0] = zero
     else:
-        Total_Rage[0] = (np.log(SOC[0] / Total_Ract)) / conr
+        Total_Rage[0] = (math.log(SOC[0] / Total_Ract)) / conr
 
     return
 
 
 def RothC(
     timeFact: float,
-    DPM: NDArray[np.float64],
-    RPM: NDArray[np.float64],
-    BIO: NDArray[np.float64],
-    HUM: NDArray[np.float64],
-    IOM: NDArray[np.float64],
-    SOC: NDArray[np.float64],
-    DPM_Rage: NDArray[np.float64],
-    RPM_Rage: NDArray[np.float64],
-    BIO_Rage: NDArray[np.float64],
-    HUM_Rage: NDArray[np.float64],
-    IOM_Rage: NDArray[np.float64],
-    Total_Rage: NDArray[np.float64],
+    DPM: list[float],
+    RPM: list[float],
+    BIO: list[float],
+    HUM: list[float],
+    IOM: list[float],
+    SOC: list[float],
+    DPM_Rage: list[float],
+    RPM_Rage: list[float],
+    BIO_Rage: list[float],
+    HUM_Rage: list[float],
+    IOM_Rage: list[float],
+    Total_Rage: list[float],
     modernC: float,
     clay: float,
     depth: float,
@@ -362,7 +361,7 @@ def RothC(
     DPM_RPM: float,
     C_Inp: float,
     FYM_Inp: float,
-    SWC: NDArray[np.float64],
+    SWC: list[float],
 ) -> None:
     """Run one timestep of the RothC carbon model.
 
@@ -540,12 +539,12 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         )
 
         # each a year calculates the difference between previous year and current year (counter =12 monthly model)
-        if np.mod(k + 1, timeFact) == 0:
+        if (k + 1) % timeFact == 0:
             TOC0 = TOC1
             TOC1 = DPM[0] + RPM[0] + BIO[0] + HUM[0]
             test = abs(TOC1 - TOC0)
 
-    Total_Delta = (np.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
+    Total_Delta = (math.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
 
     print(j, DPM[0], RPM[0], BIO[0], HUM[0], IOM[0], SOC[0], Total_Delta)
 
@@ -595,7 +594,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             SWC,
         )
 
-        Total_Delta = (np.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
+        Total_Delta = (math.exp(-Total_Rage[0] / 8035.0) - 1.0) * 1000.0
 
         print(
             C_Inp,
