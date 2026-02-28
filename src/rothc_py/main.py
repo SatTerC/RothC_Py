@@ -62,6 +62,129 @@ from pathlib import Path
 import pandas as pd
 
 
+# =============================================================================
+# Radiocarbon Constants
+# =============================================================================
+
+# Radiocarbon half-life (years) - used in radiocarbon age calculations
+RADIO_HALFLIFE = 5568.0
+
+# Radiocarbon mean lifetime (years) - derived from half-life
+# Mean lifetime = half-life / ln(2) ≈ 8033, using 8035.0 as in original
+RADIO_MEAN_LIFETIME = 8035.0
+
+# Initial radiocarbon age for IOM pool (years)
+# Effectively infinite - IOM doesn't exchange with atmosphere
+IOM_INITIAL_AGE = 50000.0
+
+
+# =============================================================================
+# Decomposition Rate Constants
+# =============================================================================
+
+# Threshold below which pool size is considered zero for age calculations
+ZERO_THRESHOLD = 1e-8
+
+# Decomposition rate constants for each pool (per year)
+# DPM: Decomposable Plant Material - fast turnover
+DPM_RATE = 10.0
+
+# RPM: Resistant Plant Material - slow turnover
+RPM_RATE = 0.3
+
+# BIO: Microbial Biomass - intermediate turnover
+BIO_RATE = 0.66
+
+# HUM: Humified Organic Matter - very slow turnover
+HUM_RATE = 0.02
+
+
+# =============================================================================
+# Carbon Flow Fractions
+# =============================================================================
+
+# Clay effect coefficients for CO2/BIO/HUM partitioning
+# These determine the proportion of decomposed C lost as CO2 vs incorporated into BIO/HUM
+CLAW_A = 1.67
+CLAW_B = 1.85
+CLAW_C = 1.60
+CLAW_D = 0.0786
+
+# Fraction of decomposed C flowing to microbial biomass (vs CO2)
+FRAC_TO_BIO = 0.46
+
+# Fraction of decomposed C flowing to humified organic matter (vs CO2)
+FRAC_TO_HUM = 0.54
+
+# Farmyard manure (FYM) composition fractions
+FYM_FRAC_DPM = 0.49
+FYM_FRAC_RPM = 0.49
+FYM_FRAC_HUM = 0.02
+
+
+# =============================================================================
+# Moisture Rate Modifier Constants
+# =============================================================================
+
+# Maximum and minimum rate modifying factors for moisture
+RMF_MOIST_MAX = 1.0
+RMF_MOIST_MIN = 0.2
+
+# Soil moisture deficit (SMD) formula coefficients
+# SMDMax = -(20 + 1.3*clay - 0.01*clay^2)
+SMD_COEFF_A = 20.0
+SMD_COEFF_B = 1.3
+SMD_COEFF_C = 0.01
+
+# Depth adjustment divisor
+SMD_DEPTH_DIVISOR = 23.0
+
+# SMD at 1 bar pressure (fraction of SMDMax)
+SMD_1BAR_FRAC = 0.444
+
+# SMD for bare soil (fraction of SMDMax)
+SMD_BARE_FRAC = 0.556
+
+# Evaporation factor - proportion of PEVAP available for soil moisture
+EVAP_FACTOR = 0.75
+
+
+# =============================================================================
+# Temperature Rate Modifier Constants
+# =============================================================================
+
+# Temperature below which decomposition rate is zero (°C)
+TEMP_MIN = -5.0
+
+# Jenkinson equation coefficients for temperature rate modifier
+# RM_TMP = 47.91 / (exp(106.06 / (TEMP + 18.27)) + 1)
+JENKINSON_A = 47.91
+JENKINSON_B = 106.06
+JENKINSON_C = 18.27
+
+
+# =============================================================================
+# Plant Cover Rate Modifier Constants
+# =============================================================================
+
+# Rate modifier for bare soil (no plant cover)
+RMF_PC_BARE = 1.0
+
+# Rate modifier for covered soil (plant cover reduces decomposition)
+RMF_PC_COVERED = 0.6
+
+
+# =============================================================================
+# Simulation Constants
+# =============================================================================
+
+# Number of months per year
+MONTHS_PER_YEAR = 12
+
+# Equilibrium threshold - simulation stops when annual TOC change < this
+EQUILIBRIUM_THRESHOLD = 1e-6
+
+
 def RMF_Tmp(TEMP: float) -> float:
     """Calculate the rate modifying factor for temperature.
 
@@ -74,12 +197,12 @@ def RMF_Tmp(TEMP: float) -> float:
     Returns:
         Rate modifying factor for temperature (typically 0.0 to ~5.0).
     """
-    if TEMP < -5.0:
-        RM_TMP = 0.0
+    if TEMP < TEMP_MIN:
+        rm_tmp = 0.0
     else:
-        RM_TMP = 47.91 / (math.exp(106.06 / (TEMP + 18.27)) + 1.0)
+        rm_tmp = JENKINSON_A / (math.exp(JENKINSON_B / (TEMP + JENKINSON_C)) + 1.0)
 
-    return RM_TMP
+    return rm_tmp
 
 
 def RMF_Moist(
@@ -108,16 +231,16 @@ def RMF_Moist(
         Tuple of (rate modifying factor for moisture, updated SWC).
         RM_Moist is typically between 0.2 and 1.0.
     """
-    RMFMax = 1.0
-    RMFMin = 0.2
+    RMFMax = RMF_MOIST_MAX
+    RMFMin = RMF_MOIST_MIN
 
     # calc soil water functions properties
-    SMDMax = -(20 + 1.3 * clay - 0.01 * (clay * clay))
-    SMDMaxAdj = SMDMax * depth / 23.0
-    SMD1bar = 0.444 * SMDMaxAdj
-    SMDBare = 0.556 * SMDMaxAdj
+    SMDMax = -(SMD_COEFF_A + SMD_COEFF_B * clay - SMD_COEFF_C * (clay * clay))
+    SMDMaxAdj = SMDMax * depth / SMD_DEPTH_DIVISOR
+    SMD1bar = SMD_1BAR_FRAC * SMDMaxAdj
+    SMDBare = SMD_BARE_FRAC * SMDMaxAdj
 
-    DF = RAIN - 0.75 * PEVAP
+    DF = RAIN - EVAP_FACTOR * PEVAP
 
     minSWCDF = min(0.0, SWC + DF)
     minSMDBareSWC = min(SMDBare, SWC)
@@ -150,11 +273,11 @@ def RMF_PC(PC: float) -> float:
         Rate modifying factor: 1.0 for bare soil, 0.6 for covered soil.
     """
     if not PC:
-        RM_PC = 1.0
+        rm_pc = RMF_PC_BARE
     else:
-        RM_PC = 0.6
+        rm_pc = RMF_PC_COVERED
 
-    return RM_PC
+    return rm_pc
 
 
 def decomp(
@@ -209,14 +332,14 @@ def decomp(
     Returns:
         Tuple of (DPM, RPM, BIO, HUM, IOM, SOC, DPM_Rage, RPM_Rage, BIO_Rage, HUM_Rage, IOM_Rage, Total_Rage).
     """
-    zero = 0e-8
+    zero = ZERO_THRESHOLD
     # rate constant are params so don't need to be passed
-    DPM_k = 10.0
-    RPM_k = 0.3
-    BIO_k = 0.66
-    HUM_k = 0.02
+    DPM_k = DPM_RATE
+    RPM_k = RPM_RATE
+    BIO_k = BIO_RATE
+    HUM_k = HUM_RATE
 
-    conr = math.log(2.0) / 5568.0
+    conr = math.log(2.0) / RADIO_HALFLIFE
 
     tstep = 1.0 / timeFact  # monthly 1/12, or daily 1/365
 
@@ -233,24 +356,24 @@ def decomp(
     BIO_d = BIO - BIO1
     HUM_d = HUM - HUM1
 
-    x = 1.67 * (1.85 + 1.60 * math.exp(-0.0786 * clay))
+    x = CLAW_A * (CLAW_B + CLAW_C * math.exp(-CLAW_D * clay))
 
     # proportion C from each pool into CO2, BIO and HUM
     DPM_co2 = DPM_d * (x / (x + 1))
-    DPM_BIO = DPM_d * (0.46 / (x + 1))
-    DPM_HUM = DPM_d * (0.54 / (x + 1))
+    DPM_BIO = DPM_d * (FRAC_TO_BIO / (x + 1))
+    DPM_HUM = DPM_d * (FRAC_TO_HUM / (x + 1))
 
     RPM_co2 = RPM_d * (x / (x + 1))
-    RPM_BIO = RPM_d * (0.46 / (x + 1))
-    RPM_HUM = RPM_d * (0.54 / (x + 1))
+    RPM_BIO = RPM_d * (FRAC_TO_BIO / (x + 1))
+    RPM_HUM = RPM_d * (FRAC_TO_HUM / (x + 1))
 
     BIO_co2 = BIO_d * (x / (x + 1))
-    BIO_BIO = BIO_d * (0.46 / (x + 1))
-    BIO_HUM = BIO_d * (0.54 / (x + 1))
+    BIO_BIO = BIO_d * (FRAC_TO_BIO / (x + 1))
+    BIO_HUM = BIO_d * (FRAC_TO_HUM / (x + 1))
 
     HUM_co2 = HUM_d * (x / (x + 1))
-    HUM_BIO = HUM_d * (0.46 / (x + 1))
-    HUM_HUM = HUM_d * (0.54 / (x + 1))
+    HUM_BIO = HUM_d * (FRAC_TO_BIO / (x + 1))
+    HUM_HUM = HUM_d * (FRAC_TO_HUM / (x + 1))
 
     # update C pools
     DPM_new = DPM1
@@ -263,9 +386,9 @@ def decomp(
     PI_C_RPM = 1.0 / (DPM_RPM + 1.0) * C_Inp
 
     # split FYM C to DPM, RPM and HUM
-    FYM_C_DPM = 0.49 * FYM_Inp
-    FYM_C_RPM = 0.49 * FYM_Inp
-    FYM_C_HUM = 0.02 * FYM_Inp
+    FYM_C_DPM = FYM_FRAC_DPM * FYM_Inp
+    FYM_C_RPM = FYM_FRAC_RPM * FYM_Inp
+    FYM_C_HUM = FYM_FRAC_HUM * FYM_Inp
 
     # add Plant C and FYM_C to DPM, RPM and HUM
     DPM_new = DPM_new + PI_C_DPM + FYM_C_DPM
@@ -515,7 +638,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
     RPM_Rage = 0.0
     BIO_Rage = 0.0
     HUM_Rage = 0.0
-    IOM_Rage = 50000.0
+    IOM_Rage = IOM_INITIAL_AGE
 
     # set initial soil water content (deficit)
     SWC = 0.0
@@ -557,10 +680,10 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
 
     print(j, DPM, RPM, BIO, HUM, IOM, SOC)
 
-    timeFact = 12
+    timeFact = MONTHS_PER_YEAR
 
     test = 100.0
-    while test > 1e-6:
+    while test > EQUILIBRIUM_THRESHOLD:
         k = k + 1
         j = j + 1
 
@@ -628,7 +751,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             TOC1 = DPM + RPM + BIO + HUM
             test = abs(TOC1 - TOC0)
 
-    Total_Delta = (math.exp(-Total_Rage / 8035.0) - 1.0) * 1000.0
+    Total_Delta = (math.exp(-Total_Rage / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
 
     print(j, DPM, RPM, BIO, HUM, IOM, SOC, Total_Delta)
 
@@ -690,7 +813,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             SWC,
         )
 
-        Total_Delta = (math.exp(-Total_Rage / 8035.0) - 1.0) * 1000.0
+        Total_Delta = (math.exp(-Total_Rage / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
 
         print(
             C_Inp,
