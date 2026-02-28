@@ -643,78 +643,72 @@ def run_rothc_timestep(
     )
 
 
-def main(input_path: Path | str, output_dir: Path | str) -> None:
-    """Run the RothC carbon model.
+def spin_up_to_equilibrium(
+    df: pd.DataFrame,
+    dpm: float,
+    rpm: float,
+    bio: float,
+    hum: float,
+    iom: float,
+    dpm_rc_age: float,
+    rpm_rc_age: float,
+    bio_rc_age: float,
+    hum_rc_age: float,
+    iom_age: float,
+    swc: float,
+    clay: float,
+    depth: float,
+    time_step: float = MONTHS_PER_YEAR,
+) -> tuple[
+    float, float, float, float, float, float, float, float, float, float, float, float, float, int, int
+]:
+    """Spin up the RothC model to equilibrium using an acceleration technique.
+
+    This function implements the RothC spin-up procedure, which accelerates the
+    model to steady state by repeatedly cycling through a fixed period of climate
+    and input data (typically one year) until the annual change in total organic
+    carbon falls below a threshold.
+
+    The acceleration technique avoids the need to simulate thousands of years of
+    historical carbon inputs. Instead, the model runs much faster by iteratively
+    applying the same climate/input year until equilibrium is reached.
 
     Args:
-        input_path: Path to the input data file.
-        output_dir: Directory where output CSV files will be written.
+        df: DataFrame containing monthly climate and input data. Must have columns:
+            t_tmp, t_rain, t_evap, t_PC, t_DPM_RPM, t_C_Inp, t_FYM_Inp, t_mod
+        dpm: Initial Decomposable Plant Material pool (t C/ha).
+        rpm: Initial Resistant Plant Material pool (t C/ha).
+        bio: Initial Microbial Biomass pool (t C/ha).
+        hum: Initial Humified Organic Matter pool (t C/ha).
+        iom: Inert Organic Matter pool (t C/ha) - remains constant.
+        dpm_rc_age: Initial radiocarbon age of DPM pool (years).
+        rpm_rc_age: Initial radiocarbon age of RPM pool (years).
+        bio_rc_age: Initial radiocarbon age of BIO pool (years).
+        hum_rc_age: Initial radiocarbon age of HUM pool (years).
+        iom_age: Initial radiocarbon age of IOM pool (years).
+        swc: Initial soil water content/deficit (mm).
+        clay: Clay content of soil (%).
+        depth: Depth of topsoil (cm).
+        time_step: Timestep factor (default: MONTHS_PER_YEAR = 12 for monthly).
+
+    Returns:
+        Tuple containing:
+        - dpm, rpm, bio, hum, iom, soc: Equilibrium carbon pools (t C/ha)
+        - dpm_rc_age, rpm_rc_age, bio_rc_age, hum_rc_age, iom_age, total_rc_age: Radiocarbon ages (years)
+        - swc: Final soil water content (mm)
+        - n_cycles: Number of complete cycles (years) run to reach equilibrium
+        - n_iterations: Total number of iterations (months) run
     """
-    input_path = Path(input_path)
-    output_dir = Path(output_dir)
-
-    ######################################################################################################
-    # program RothC_Python
-
-    # set initial pool values
-    dpm = 0.0
-    rpm = 0.0
-    bio = 0.0
-    hum = 0.0
-    soc = 0.0
-
-    dpm_rc_age = 0.0
-    rpm_rc_age = 0.0
-    bio_rc_age = 0.0
-    hum_rc_age = 0.0
-    iom_age = IOM_INITIAL_AGE
-
-    # set initial soil water content (deficit)
-    swc = 0.0
-    toc1 = 0.0
-
-    # read in RothC input data file
-    df_head = pd.read_csv(
-        input_path,
-        skiprows=3,
-        header=0,
-        nrows=1,
-        index_col=None,
-        sep=r"\s+",
-    )
-    clay = df_head.loc[0, "clay"]
-    depth = df_head.loc[0, "depth"]
-    iom = float(df_head.loc[0, "iom"])
-    nsteps = df_head.loc[0, "nsteps"]
-    df = pd.read_csv(input_path, skiprows=6, header=0, index_col=None, sep=r"\s+")
-    print(df)
-    df.columns = [
-        "t_year",
-        "t_month",
-        "t_mod",
-        "t_tmp",
-        "t_rain",
-        "t_evap",
-        "t_C_Inp",
-        "t_FYM_Inp",
-        "t_PC",
-        "t_DPM_RPM",
-    ]
-
-    # run RothC to equilibrium
-    k = -1
-    j = -1
-
     soc = dpm + rpm + bio + hum + iom
+    toc_prev = 0.0
+    n_cycles = -1
+    k = -1
+    total_iterations = 0
 
-    print(j, dpm, rpm, bio, hum, iom, soc)
-
-    time_step = MONTHS_PER_YEAR
-
-    test = 100.0
-    while test > EQUILIBRIUM_THRESHOLD:
+    while True:
         k = k + 1
-        j = j + 1
+        total_iterations = total_iterations + 1
+        n_cycles = n_cycles + 1
 
         if k == time_step:
             k = 0
@@ -774,15 +768,131 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             swc,
         )
 
-        # each a year calculates the difference between previous year and current year (counter =12 monthly model)
         if (k + 1) % time_step == 0:
-            toc0 = toc1
-            toc1 = dpm + rpm + bio + hum
-            test = abs(toc1 - toc0)
+            toc_curr = dpm + rpm + bio + hum
+            if abs(toc_curr - toc_prev) < EQUILIBRIUM_THRESHOLD:
+                break
+            toc_prev = toc_curr
+
+    return (
+        dpm,
+        rpm,
+        bio,
+        hum,
+        iom,
+        soc,
+        dpm_rc_age,
+        rpm_rc_age,
+        bio_rc_age,
+        hum_rc_age,
+        iom_age,
+        total_rc_age,
+        swc,
+        n_cycles,
+        total_iterations,
+    )
+
+
+def main(input_path: Path | str, output_dir: Path | str) -> None:
+    """Run the RothC carbon model.
+
+    Args:
+        input_path: Path to the input data file.
+        output_dir: Directory where output CSV files will be written.
+    """
+    input_path = Path(input_path)
+    output_dir = Path(output_dir)
+
+    ######################################################################################################
+    # program RothC_Python
+
+    # set initial pool values
+    dpm = 0.0
+    rpm = 0.0
+    bio = 0.0
+    hum = 0.0
+    soc = 0.0
+
+    dpm_rc_age = 0.0
+    rpm_rc_age = 0.0
+    bio_rc_age = 0.0
+    hum_rc_age = 0.0
+    iom_age = IOM_INITIAL_AGE
+
+    # set initial soil water content (deficit)
+    swc = 0.0
+    toc1 = 0.0
+
+    # read in RothC input data file
+    df_head = pd.read_csv(
+        input_path,
+        skiprows=3,
+        header=0,
+        nrows=1,
+        index_col=None,
+        sep=r"\s+",
+    )
+    clay = df_head.loc[0, "clay"]
+    depth = df_head.loc[0, "depth"]
+    iom = float(df_head.loc[0, "iom"])
+    nsteps = df_head.loc[0, "nsteps"]
+    df = pd.read_csv(input_path, skiprows=6, header=0, index_col=None, sep=r"\s+")
+    print(df)
+    df.columns = [
+        "t_year",
+        "t_month",
+        "t_mod",
+        "t_tmp",
+        "t_rain",
+        "t_evap",
+        "t_C_Inp",
+        "t_FYM_Inp",
+        "t_PC",
+        "t_DPM_RPM",
+    ]
+
+    # spin up to equilibrium
+    print(0, dpm, rpm, bio, hum, iom, soc)
+
+    (
+        dpm,
+        rpm,
+        bio,
+        hum,
+        iom,
+        soc,
+        dpm_rc_age,
+        rpm_rc_age,
+        bio_rc_age,
+        hum_rc_age,
+        iom_age,
+        total_rc_age,
+        swc,
+        j,
+        _,
+    ) = spin_up_to_equilibrium(
+        df,
+        dpm,
+        rpm,
+        bio,
+        hum,
+        iom,
+        dpm_rc_age,
+        rpm_rc_age,
+        bio_rc_age,
+        hum_rc_age,
+        iom_age,
+        swc,
+        clay,
+        depth,
+    )
+
+    time_step = MONTHS_PER_YEAR
 
     total_delta = (math.exp(-total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
-
     print(j, dpm, rpm, bio, hum, iom, soc, total_delta)
+
+    k = -1
 
     year_list = [[1, j + 1, dpm, rpm, bio, hum, iom, soc, total_delta]]
 
