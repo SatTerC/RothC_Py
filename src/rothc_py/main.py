@@ -280,6 +280,63 @@ def rmf_pc(pc: bool) -> float:
     return rm_pc
 
 
+def _decompose_pool(pool: float, rate_k: float, rate_m: float, tstep: float) -> tuple[float, float]:
+    """Decompose a carbon pool using first-order decay kinetics.
+
+    Args:
+        pool: Carbon pool size (t C/ha).
+        rate_k: Decomposition rate constant for this pool (per year).
+        rate_m: Combined rate modifier (temperature × moisture × plant cover).
+        tstep: Timestep (1/12 for monthly, 1/365 for daily).
+
+    Returns:
+        Tuple of (remaining_pool, decomposed_amount).
+    """
+    remaining = pool * math.exp(-rate_m * rate_k * tstep)
+    decomposed = pool - remaining
+    return remaining, decomposed
+
+
+def _partition_decomposed(decomposed: float, x: float) -> tuple[float, float, float]:
+    """Partition decomposed carbon into CO2, BIO, and HUM fractions.
+
+    The partitioning coefficient x depends on clay content and determines
+    the proportion lost as CO2 vs incorporated into biomass/humus.
+
+    Args:
+        decomposed: Amount of carbon decomposed (t C/ha).
+        x: Clay-dependent partitioning coefficient.
+
+    Returns:
+        Tuple of (co2, bio, hum) carbon amounts.
+    """
+    total = x + 1
+    co2 = decomposed * (x / total)
+    bio = decomposed * (FRAC_TO_BIO / total)
+    hum = decomposed * (FRAC_TO_HUM / total)
+    return co2, bio, hum
+
+
+def _calc_pool_age(pool_new: float, ract_new: float, conr: float) -> float:
+    """Calculate radiocarbon age from pool size and activity.
+
+    Uses the radioactive decay equation inverted to solve for age:
+    age = -ln(remaining/initial) / lambda
+    where lambda = ln(2) / half_life
+
+    Args:
+        pool_new: Current pool size (t C/ha).
+        ract_new: Radiocarbon activity (modern C equivalents).
+        conr: Decay constant (1/mean_lifetime).
+
+    Returns:
+        Radiocarbon age in years.
+    """
+    if pool_new <= ZERO_THRESHOLD:
+        return ZERO_THRESHOLD
+    return math.log(pool_new / ract_new) / conr
+
+
 def decompose(
     time_step: float,
     dpm: float,
@@ -332,7 +389,6 @@ def decompose(
     Returns:
         Tuple of (dpm, rpm, bio, hum, iom, soc, dpm_rc_age, rpm_rc_age, bio_rc_age, hum_rc_age, iom_age, total_rc_age).
     """
-    zero = ZERO_THRESHOLD
     # rate constant are params so don't need to be passed
     dpm_k = DPM_RATE
     rpm_k = RPM_RATE
@@ -346,34 +402,18 @@ def decompose(
     exc = math.exp(-conr * tstep)
 
     # decomposition
-    dpm1 = dpm * math.exp(-rate_m * dpm_k * tstep)
-    rpm1 = rpm * math.exp(-rate_m * rpm_k * tstep)
-    bio1 = bio * math.exp(-rate_m * bio_k * tstep)
-    hum1 = hum * math.exp(-rate_m * hum_k * tstep)
-
-    dpm_d = dpm - dpm1
-    rpm_d = rpm - rpm1
-    bio_d = bio - bio1
-    hum_d = hum - hum1
+    dpm1, dpm_d = _decompose_pool(dpm, DPM_RATE, rate_m, tstep)
+    rpm1, rpm_d = _decompose_pool(rpm, RPM_RATE, rate_m, tstep)
+    bio1, bio_d = _decompose_pool(bio, BIO_RATE, rate_m, tstep)
+    hum1, hum_d = _decompose_pool(hum, HUM_RATE, rate_m, tstep)
 
     x = CLAW_A * (CLAW_B + CLAW_C * math.exp(-CLAW_D * clay))
 
     # proportion C from each pool into CO2, BIO and HUM
-    dpm_co2 = dpm_d * (x / (x + 1))
-    dpm_bio = dpm_d * (FRAC_TO_BIO / (x + 1))
-    dpm_hum = dpm_d * (FRAC_TO_HUM / (x + 1))
-
-    rpm_co2 = rpm_d * (x / (x + 1))
-    rpm_bio = rpm_d * (FRAC_TO_BIO / (x + 1))
-    rpm_hum = rpm_d * (FRAC_TO_HUM / (x + 1))
-
-    bio_co2 = bio_d * (x / (x + 1))
-    bio_bio = bio_d * (FRAC_TO_BIO / (x + 1))
-    bio_hum = bio_d * (FRAC_TO_HUM / (x + 1))
-
-    hum_co2 = hum_d * (x / (x + 1))
-    hum_bio = hum_d * (FRAC_TO_BIO / (x + 1))
-    hum_hum = hum_d * (FRAC_TO_HUM / (x + 1))
+    dpm_co2, dpm_bio, dpm_hum = _partition_decomposed(dpm_d, x)
+    rpm_co2, rpm_bio, rpm_hum = _partition_decomposed(rpm_d, x)
+    bio_co2, bio_bio, bio_hum = _partition_decomposed(bio_d, x)
+    hum_co2, hum_bio, hum_hum = _partition_decomposed(hum_d, x)
 
     # update C pools
     dpm_new = dpm1
@@ -438,31 +478,12 @@ def decompose(
 
     total_ract = dpm_ract_new + rpm_ract_new + bio_ract_new + hum_ract_new + iom_ract
 
-    # calculate rage of each pool.
-    if dpm_new <= zero:
-        dpm_rc_age_new = zero
-    else:
-        dpm_rc_age_new = (math.log(dpm_new / dpm_ract_new)) / conr
-
-    if rpm_new <= zero:
-        rpm_rc_age_new = zero
-    else:
-        rpm_rc_age_new = (math.log(rpm_new / rpm_ract_new)) / conr
-
-    if bio_new <= zero:
-        bio_rc_age_new = zero
-    else:
-        bio_rc_age_new = (math.log(bio_new / bio_ract_new)) / conr
-
-    if hum_new <= zero:
-        hum_rc_age_new = zero
-    else:
-        hum_rc_age_new = (math.log(hum_new / hum_ract_new)) / conr
-
-    if soc_new <= zero:
-        total_rc_age_new = zero
-    else:
-        total_rc_age_new = (math.log(soc_new / total_ract)) / conr
+    # calculate new radiocarbon age for each pool
+    dpm_rc_age_new = _calc_pool_age(dpm_new, dpm_ract_new, conr)
+    rpm_rc_age_new = _calc_pool_age(rpm_new, rpm_ract_new, conr)
+    bio_rc_age_new = _calc_pool_age(bio_new, bio_ract_new, conr)
+    hum_rc_age_new = _calc_pool_age(hum_new, hum_ract_new, conr)
+    total_rc_age_new = _calc_pool_age(soc_new, total_ract, conr)
 
     return (
         dpm_new,
