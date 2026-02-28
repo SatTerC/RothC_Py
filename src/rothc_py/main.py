@@ -185,7 +185,7 @@ MONTHS_PER_YEAR = 12
 EQUILIBRIUM_THRESHOLD = 1e-6
 
 
-def rmf_tmp(temp: float) -> float:
+def rmf_tmp(temp: float, *, temp_min: float = TEMP_MIN) -> float:
     """Calculate the rate modifying factor for temperature.
 
     Uses the Jenkinson equation to calculate the temperature rate modifier
@@ -193,11 +193,12 @@ def rmf_tmp(temp: float) -> float:
 
     Args:
         temp: Monthly mean air temperature (°C).
+        temp_min: Temperature below which rate is zero (default: TEMP_MIN).
 
     Returns:
         Rate modifying factor for temperature (typically 0.0 to ~5.0).
     """
-    if temp < TEMP_MIN:
+    if temp < temp_min:
         rm_tmp = 0.0
     else:
         rm_tmp = JENKINSON_A / (math.exp(JENKINSON_B / (temp + JENKINSON_C)) + 1.0)
@@ -212,6 +213,9 @@ def rmf_moist(
     depth: float,
     pc: bool,
     swc: float,
+    *,
+    rmf_max: float = RMF_MOIST_MAX,
+    rmf_min: float = RMF_MOIST_MIN,
 ) -> tuple[float, float]:
     """Calculate the rate modifying factor for moisture.
 
@@ -226,14 +230,13 @@ def rmf_moist(
         depth: Depth of topsoil (cm).
         pc: Plant cover (False = no cover, True = covered).
         swc: Soil water content/deficit (mm).
+        rmf_max: Maximum rate modifying factor (default: RMF_MOIST_MAX).
+        rmf_min: Minimum rate modifying factor (default: RMF_MOIST_MIN).
 
     Returns:
         Tuple of (rate modifying factor for moisture, updated swc).
         rm_moist is typically between 0.2 and 1.0.
     """
-    rmf_max = RMF_MOIST_MAX
-    rmf_min = RMF_MOIST_MIN
-
     # calc soil water functions properties
     smd_max = -(SMD_COEFF_A + SMD_COEFF_B * clay - SMD_COEFF_C * (clay * clay))
     smd_max_adj = smd_max * depth / SMD_DEPTH_DIVISOR
@@ -357,6 +360,12 @@ def decompose(
     c_inp: float,
     fym_inp: float,
     dpm_rpm: float,
+    *,
+    dpm_k: float = DPM_RATE,
+    rpm_k: float = RPM_RATE,
+    bio_k: float = BIO_RATE,
+    hum_k: float = HUM_RATE,
+    radio_halflife: float = RADIO_HALFLIFE,
 ) -> tuple[
     float, float, float, float, float, float, float, float, float, float, float, float
 ]:
@@ -385,27 +394,26 @@ def decompose(
         c_inp: Plant carbon input (t C/ha).
         fym_inp: Farmyard manure carbon input (t C/ha).
         dpm_rpm: Ratio of DPM to RPM in plant inputs.
+        dpm_k: Decomposition rate constant for DPM (default: DPM_RATE).
+        rpm_k: Decomposition rate constant for RPM (default: RPM_RATE).
+        bio_k: Decomposition rate constant for BIO (default: BIO_RATE).
+        hum_k: Decomposition rate constant for HUM (default: HUM_RATE).
+        radio_halflife: Radiocarbon half-life in years (default: RADIO_HALFLIFE).
 
     Returns:
         Tuple of (dpm, rpm, bio, hum, iom, soc, dpm_rc_age, rpm_rc_age, bio_rc_age, hum_rc_age, iom_age, total_rc_age).
     """
-    # rate constant are params so don't need to be passed
-    dpm_k = DPM_RATE
-    rpm_k = RPM_RATE
-    bio_k = BIO_RATE
-    hum_k = HUM_RATE
-
-    conr = math.log(2.0) / RADIO_HALFLIFE
+    conr = math.log(2.0) / radio_halflife
 
     tstep = 1.0 / time_step  # monthly 1/12, or daily 1/365
 
     exc = math.exp(-conr * tstep)
 
     # decomposition
-    dpm1, dpm_d = _decompose_pool(dpm, DPM_RATE, rate_m, tstep)
-    rpm1, rpm_d = _decompose_pool(rpm, RPM_RATE, rate_m, tstep)
-    bio1, bio_d = _decompose_pool(bio, BIO_RATE, rate_m, tstep)
-    hum1, hum_d = _decompose_pool(hum, HUM_RATE, rate_m, tstep)
+    dpm1, dpm_d = _decompose_pool(dpm, dpm_k, rate_m, tstep)
+    rpm1, rpm_d = _decompose_pool(rpm, rpm_k, rate_m, tstep)
+    bio1, bio_d = _decompose_pool(bio, bio_k, rate_m, tstep)
+    hum1, hum_d = _decompose_pool(hum, hum_k, rate_m, tstep)
 
     x = CLAW_A * (CLAW_B + CLAW_C * math.exp(-CLAW_D * clay))
 
