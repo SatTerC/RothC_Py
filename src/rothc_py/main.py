@@ -1,3 +1,9 @@
+"""
+Rothamsted Carbon Model (RothC) implemented in Python.
+
+What follows is the original description from https://github.com/Rothamsted-Models/RothC_Py/RothC_Py.py,
+at commit bd90ce3cf616d5316042b73a3b1f09c5b6e3b361 (Mar 12, 2025).
+
 ######################################################################################################################
 #
 #  RothC python version
@@ -48,6 +54,7 @@
 #  RM_PC:     rate modifying fator for plant retainment (0.6 or 1.0)
 
 ######################################################################################################################
+"""
 
 import math
 from pathlib import Path
@@ -80,7 +87,7 @@ def RMF_Moist(
     PEVAP: float,
     clay: float,
     depth: float,
-    PC: float,
+    PC: bool,
     SWC: float,
 ) -> tuple[float, float]:
     """Calculate the rate modifying factor for moisture.
@@ -94,7 +101,7 @@ def RMF_Moist(
         PEVAP: Open pan evaporation (mm).
         clay: Clay content of soil (%).
         depth: Depth of topsoil (cm).
-        PC: Plant cover (0 = no cover, 1 = covered).
+        PC: Plant cover (False = no cover, True = covered).
         SWC: Soil water content/deficit (mm).
 
     Returns:
@@ -115,7 +122,7 @@ def RMF_Moist(
     minSWCDF = min(0.0, SWC + DF)
     minSMDBareSWC = min(SMDBare, SWC)
 
-    if PC == 1:
+    if PC:
         SWC_new = max(SMDMaxAdj, minSWCDF)
     else:
         SWC_new = max(minSMDBareSWC, minSWCDF)
@@ -137,12 +144,12 @@ def RMF_PC(PC: float) -> float:
     representing reduced decomposition due to litter retention.
 
     Args:
-        PC: Plant cover (0 = no cover/bare soil, 1 = covered by crop).
+        PC: Plant cover (False = no cover/bare soil, True = covered by crop).
 
     Returns:
         Rate modifying factor: 1.0 for bare soil, 0.6 for covered soil.
     """
-    if PC == 0:
+    if not PC:
         RM_PC = 1.0
     else:
         RM_PC = 0.6
@@ -370,7 +377,7 @@ def RothC(
     TEMP: float,
     RAIN: float,
     PEVAP: float,
-    PC: float,
+    PC: bool,
     DPM_RPM: float,
     C_Inp: float,
     FYM_Inp: float,
@@ -415,7 +422,7 @@ def RothC(
         TEMP: Monthly mean air temperature (°C).
         RAIN: Monthly rainfall (mm).
         PEVAP: Open pan evaporation (mm).
-        PC: Plant cover (0 = no cover, 1 = covered).
+        PC: Plant cover (False = no cover, True = covered).
         DPM_RPM: Ratio of DPM to RPM in plant inputs.
         C_Inp: Plant carbon input (t C/ha).
         FYM_Inp: Farmyard manure carbon input (t C/ha).
@@ -482,8 +489,6 @@ def RothC(
         Total_Rage,
         SWC,
     )
-
-    return
 
 
 def main(input_path: Path | str, output_dir: Path | str) -> None:
@@ -566,7 +571,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         RAIN = df.t_rain[k]
         PEVAP = df.t_evap[k]
 
-        PC = df.t_PC[k]
+        PC = bool(df.t_PC[k])
         DPM_RPM = df.t_DPM_RPM[k]
 
         C_Inp = df.t_C_Inp[k]
@@ -636,7 +641,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         RAIN = df.t_rain[i]
         PEVAP = df.t_evap[i]
 
-        PC = df.t_PC[i]
+        PC = bool(df.t_PC[i])
         DPM_RPM = df.t_DPM_RPM[i]
 
         C_Inp = df.t_C_Inp[i]
