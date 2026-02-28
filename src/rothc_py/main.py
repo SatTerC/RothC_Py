@@ -185,7 +185,7 @@ MONTHS_PER_YEAR = 12
 EQUILIBRIUM_THRESHOLD = 1e-6
 
 
-def rmf_tmp(temp: float, *, temp_min: float = TEMP_MIN) -> float:
+def temperature_rate_modifier(temp: float, *, temp_min: float = TEMP_MIN) -> float:
     """Calculate the rate modifying factor for temperature.
 
     Uses the Jenkinson equation to calculate the temperature rate modifier
@@ -206,7 +206,7 @@ def rmf_tmp(temp: float, *, temp_min: float = TEMP_MIN) -> float:
     return rm_tmp
 
 
-def rmf_moist(
+def moisture_rate_modifier(
     rain: float,
     pevap: float,
     clay: float,
@@ -263,7 +263,7 @@ def rmf_moist(
     return rm_moist, swc_new
 
 
-def rmf_pc(pc: bool) -> float:
+def plant_cover_rate_modifier(pc: bool) -> float:
     """Calculate the plant retainment modifying factor.
 
     Returns a reduced rate when the soil is covered by vegetation,
@@ -283,7 +283,7 @@ def rmf_pc(pc: bool) -> float:
     return rm_pc
 
 
-def _decompose_pool(pool: float, rate_k: float, rate_m: float, tstep: float) -> tuple[float, float]:
+def _decompose_single_pool(pool: float, rate_k: float, rate_m: float, tstep: float) -> tuple[float, float]:
     """Decompose a carbon pool using first-order decay kinetics.
 
     Args:
@@ -300,7 +300,7 @@ def _decompose_pool(pool: float, rate_k: float, rate_m: float, tstep: float) -> 
     return remaining, decomposed
 
 
-def _partition_decomposed(decomposed: float, x: float) -> tuple[float, float, float]:
+def _partition_carbon_flows(decomposed: float, x: float) -> tuple[float, float, float]:
     """Partition decomposed carbon into CO2, BIO, and HUM fractions.
 
     The partitioning coefficient x depends on clay content and determines
@@ -320,7 +320,7 @@ def _partition_decomposed(decomposed: float, x: float) -> tuple[float, float, fl
     return co2, bio, hum
 
 
-def _calc_pool_age(pool_new: float, ract_new: float, conr: float) -> float:
+def _calculate_radiocarbon_age(pool_new: float, ract_new: float, conr: float) -> float:
     """Calculate radiocarbon age from pool size and activity.
 
     Uses the radioactive decay equation inverted to solve for age:
@@ -340,7 +340,7 @@ def _calc_pool_age(pool_new: float, ract_new: float, conr: float) -> float:
     return math.log(pool_new / ract_new) / conr
 
 
-def decompose(
+def decompose_pools(
     time_step: float,
     dpm: float,
     rpm: float,
@@ -410,18 +410,18 @@ def decompose(
     exc = math.exp(-conr * tstep)
 
     # decomposition
-    dpm1, dpm_d = _decompose_pool(dpm, dpm_k, rate_m, tstep)
-    rpm1, rpm_d = _decompose_pool(rpm, rpm_k, rate_m, tstep)
-    bio1, bio_d = _decompose_pool(bio, bio_k, rate_m, tstep)
-    hum1, hum_d = _decompose_pool(hum, hum_k, rate_m, tstep)
+    dpm1, dpm_d = _decompose_single_pool(dpm, dpm_k, rate_m, tstep)
+    rpm1, rpm_d = _decompose_single_pool(rpm, rpm_k, rate_m, tstep)
+    bio1, bio_d = _decompose_single_pool(bio, bio_k, rate_m, tstep)
+    hum1, hum_d = _decompose_single_pool(hum, hum_k, rate_m, tstep)
 
     x = CLAW_A * (CLAW_B + CLAW_C * math.exp(-CLAW_D * clay))
 
     # proportion C from each pool into CO2, BIO and HUM
-    dpm_co2, dpm_bio, dpm_hum = _partition_decomposed(dpm_d, x)
-    rpm_co2, rpm_bio, rpm_hum = _partition_decomposed(rpm_d, x)
-    bio_co2, bio_bio, bio_hum = _partition_decomposed(bio_d, x)
-    hum_co2, hum_bio, hum_hum = _partition_decomposed(hum_d, x)
+    dpm_co2, dpm_bio, dpm_hum = _partition_carbon_flows(dpm_d, x)
+    rpm_co2, rpm_bio, rpm_hum = _partition_carbon_flows(rpm_d, x)
+    bio_co2, bio_bio, bio_hum = _partition_carbon_flows(bio_d, x)
+    hum_co2, hum_bio, hum_hum = _partition_carbon_flows(hum_d, x)
 
     # update C pools
     dpm_new = dpm1
@@ -487,11 +487,11 @@ def decompose(
     total_ract = dpm_ract_new + rpm_ract_new + bio_ract_new + hum_ract_new + iom_ract
 
     # calculate new radiocarbon age for each pool
-    dpm_rc_age_new = _calc_pool_age(dpm_new, dpm_ract_new, conr)
-    rpm_rc_age_new = _calc_pool_age(rpm_new, rpm_ract_new, conr)
-    bio_rc_age_new = _calc_pool_age(bio_new, bio_ract_new, conr)
-    hum_rc_age_new = _calc_pool_age(hum_new, hum_ract_new, conr)
-    total_rc_age_new = _calc_pool_age(soc_new, total_ract, conr)
+    dpm_rc_age_new = _calculate_radiocarbon_age(dpm_new, dpm_ract_new, conr)
+    rpm_rc_age_new = _calculate_radiocarbon_age(rpm_new, rpm_ract_new, conr)
+    bio_rc_age_new = _calculate_radiocarbon_age(bio_new, bio_ract_new, conr)
+    hum_rc_age_new = _calculate_radiocarbon_age(hum_new, hum_ract_new, conr)
+    total_rc_age_new = _calculate_radiocarbon_age(soc_new, total_ract, conr)
 
     return (
         dpm_new,
@@ -509,7 +509,7 @@ def decompose(
     )
 
 
-def run_rothc(
+def run_rothc_timestep(
     time_step: float,
     dpm: float,
     rpm: float,
@@ -584,9 +584,9 @@ def run_rothc(
         Tuple of (dpm, rpm, bio, hum, iom, soc, dpm_rc_age, rpm_rc_age, bio_rc_age, hum_rc_age, iom_age, total_rc_age, swc).
     """
     # Calculate RMFs
-    rm_tmp = rmf_tmp(temp)
-    rm_moist, swc = rmf_moist(rain, pevap, clay, depth, pc, swc)
-    rm_pc = rmf_pc(pc)
+    rm_tmp = temperature_rate_modifier(temp)
+    rm_moist, swc = moisture_rate_modifier(rain, pevap, clay, depth, pc, swc)
+    rm_pc = plant_cover_rate_modifier(pc)
 
     # Combine RMF's into one.
     rate_m = rm_tmp * rm_moist * rm_pc
@@ -604,7 +604,7 @@ def run_rothc(
         hum_rc_age,
         iom_age,
         total_rc_age,
-    ) = decompose(
+    ) = decompose_pools(
         time_step,
         dpm,
         rpm,
@@ -747,7 +747,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             iom_age,
             total_rc_age,
             swc,
-        ) = run_rothc(
+        ) = run_rothc_timestep(
             time_step,
             dpm,
             rpm,
@@ -815,7 +815,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             iom_age,
             total_rc_age,
             swc,
-        ) = run_rothc(
+        ) = run_rothc_timestep(
             time_step,
             dpm,
             rpm,
