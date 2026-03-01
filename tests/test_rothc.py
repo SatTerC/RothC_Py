@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+import time
 from pathlib import Path
 import tempfile
 
@@ -54,3 +55,18 @@ def test_final_year_values():
         assert final_row["IOM_t_C_ha"] == pytest.approx(3.0041, abs=1e-10)
         assert final_row["SOC_t_C_ha"] == pytest.approx(38.19152379985445, abs=1e-10)
         assert final_row["deltaC"] == pytest.approx(-1.6364720117949538, abs=1e-10)
+
+
+def test_main_timing():
+    """Test that main() runs and prints execution time."""
+    input_path = FIXTURE_DIR / "example_inputs.dat"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir)
+
+        start = time.perf_counter()
+        main(input_path, output_dir)
+        end = time.perf_counter()
+
+        elapsed = end - start
+        print(f"\nmain() execution time: {elapsed:.4f} seconds")
