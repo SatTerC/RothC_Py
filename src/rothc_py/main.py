@@ -58,7 +58,7 @@ at commit bd90ce3cf616d5316042b73a3b1f09c5b6e3b361 (Mar 12, 2025).
 
 from dataclasses import dataclass
 from math import exp, log
-from typing import Self
+from typing import Self, TypedDict
 
 
 # =============================================================================
@@ -196,6 +196,42 @@ MONTHS_PER_YEAR = 12
 
 EQUILIBRIUM_THRESHOLD = 1e-6
 """Threshold for spin-up convergence: maximum annual TOC change (t C/ha)."""
+
+
+# =============================================================================
+# Input Types
+# =============================================================================
+
+
+class RothCInputData(TypedDict):
+    """Input data dictionary for the RothC model.
+
+    All values are lists of monthly data, one entry per month.
+    The lists should all have the same length.
+
+    Attributes:
+        t_tmp: Monthly mean air temperature (°C).
+        t_rain: Monthly rainfall (mm).
+        t_evap: Monthly open pan evaporation (mm).
+        t_PC: Plant cover (0 = bare, 1 = covered).
+        t_DPM_RPM: Ratio of DPM to RPM in plant inputs.
+        t_C_Inp: Monthly plant carbon input (t C/ha).
+        t_FYM_Inp: Monthly farmyard manure input (t C/ha).
+        t_mod: Radiocarbon content as percentage modern carbon (%).
+        t_year: Calendar year for each month.
+        t_month: Month number (1-12) for each month.
+    """
+
+    t_tmp: list[float]
+    t_rain: list[float]
+    t_evap: list[float]
+    t_PC: list[int]
+    t_DPM_RPM: list[float]
+    t_C_Inp: list[float]
+    t_FYM_Inp: list[float]
+    t_mod: list[float]
+    t_year: list[int]
+    t_month: list[int]
 
 
 # =============================================================================
@@ -623,15 +659,14 @@ class RothC:
 
         return new_state
 
-    def spin_up(self, data: dict[str, list]) -> tuple[CarbonState, int, int]:
+    def spin_up(self, data: RothCInputData) -> tuple[CarbonState, int, int]:
         """Spin up the RothC model to equilibrium using an acceleration technique.
 
         This method iteratively applies the same climate/input year until the
         annual change in total organic carbon falls below a threshold.
 
         Args:
-            data: Dictionary containing monthly climate and input data. Must have keys:
-                t_tmp, t_rain, t_evap, t_PC, t_DPM_RPM, t_C_Inp, t_FYM_Inp, t_mod
+            data: Dictionary containing monthly climate and input data.
 
         Returns:
             Tuple of (final state, n_cycles, n_iterations).
@@ -685,7 +720,7 @@ class RothC:
         return state, n_cycles, total_iterations
 
     def run_forward(
-        self, state: CarbonState, data: dict[str, list], n_cycles: int = 0
+        self, state: CarbonState, data: RothCInputData, n_cycles: int = 0
     ) -> tuple[list[dict], list[dict]]:
         """Run the forward simulation from an initial state.
 
@@ -776,7 +811,7 @@ class RothC:
 
         return year_results, month_results
 
-    def __call__(self, data: dict[str, list]) -> tuple[list[dict], list[dict]]:
+    def __call__(self, data: RothCInputData) -> tuple[list[dict], list[dict]]:
         """Run the full RothC simulation (spin-up + forward).
 
         Args:
