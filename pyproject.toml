@@ -1,3 +1,7 @@
+[build-system]
+requires = ["uv_build>=0.8.10,<0.9.0"]
+build-backend = "uv_build"
+
 [project]
 name = "rothc-py"
 version = "0.1.0"
@@ -7,20 +11,18 @@ authors = [
     { name = "jmarshrossney", email = "17361029+jmarshrossney@users.noreply.github.com" }
 ]
 requires-python = ">=3.13"
-dependencies = [
-    "numpy>=2.4.2",
-    "pandas>=3.0.1",
-]
+dependencies = []
 
 [project.scripts]
 rothc = "rothc_py.cli:main"
 
-[build-system]
-requires = ["uv_build>=0.8.10,<0.9.0"]
-build-backend = "uv_build"
-
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    {include-group = "test"},
     "ruff>=0.15.4",
+]
+test = [
+    "numpy>=2.4.2",
+    "pandas>=3.0.1",
+    "pytest>=9.0.2",
 ]
