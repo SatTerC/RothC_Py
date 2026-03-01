@@ -75,6 +75,7 @@ IOM_INITIAL_AGE = 50000.0
 """Default initial age of inert organic matter, implying negligible 14C (years)."""
 
 
+# =============================================================================
 # Decomposition Rate Constants
 # =============================================================================
 
@@ -242,7 +243,7 @@ class CarbonState:
 # =============================================================================
 
 
-def temperature_rate_modifier(temp: float, *, temp_min: float = TEMP_MIN) -> float:
+def temperature_rate_modifier(temp: float) -> float:
     """Calculate the rate modifying factor for temperature.
 
     Uses the Jenkinson equation to calculate the temperature rate modifier
@@ -250,17 +251,15 @@ def temperature_rate_modifier(temp: float, *, temp_min: float = TEMP_MIN) -> flo
 
     Args:
         temp: Monthly mean air temperature (°C).
-        temp_min: Temperature below which rate is zero (default: TEMP_MIN).
 
     Returns:
         Rate modifying factor for temperature (typically 0.0 to ~5.0).
     """
-    if temp < temp_min:
-        rm_tmp = 0.0
-    else:
-        rm_tmp = JENKINSON_A / (exp(JENKINSON_B / (temp + JENKINSON_C)) + 1.0)
-
-    return rm_tmp
+    return (
+        JENKINSON_A / (exp(JENKINSON_B / (temp + JENKINSON_C)) + 1.0)
+        if temp > TEMP_MIN
+        else 0.0
+    )
 
 
 def moisture_rate_modifier(
@@ -270,9 +269,6 @@ def moisture_rate_modifier(
     depth: float,
     pc: bool,
     swc: float,
-    *,
-    rmf_max: float = RMF_MOIST_MAX,
-    rmf_min: float = RMF_MOIST_MIN,
 ) -> tuple[float, float]:
     """Calculate the rate modifying factor for moisture.
 
@@ -287,8 +283,6 @@ def moisture_rate_modifier(
         depth: Depth of topsoil (cm).
         pc: Plant cover (False = no cover, True = covered).
         swc: Soil water content/deficit (mm).
-        rmf_max: Maximum rate modifying factor (default: RMF_MOIST_MAX).
-        rmf_min: Minimum rate modifying factor (default: RMF_MOIST_MIN).
 
     Returns:
         Tuple of (rate modifying factor for moisture, updated swc).
@@ -302,19 +296,19 @@ def moisture_rate_modifier(
     df = rain - EVAP_FACTOR * pevap
 
     min_swc_df = min(0.0, swc + df)
-    min_smd_bare_swc = min(smd_bare, swc)
 
     if pc:
         swc_new = max(smd_max_adj, min_swc_df)
     else:
+        min_smd_bare_swc = min(smd_bare, swc)
         swc_new = max(min_smd_bare_swc, min_swc_df)
 
     if swc_new > smd_1bar:
-        rm_moist = 1.0
+        rm_moist = RMF_MOIST_MAX
     else:
-        rm_moist = rmf_min + (rmf_max - rmf_min) * (smd_max_adj - swc_new) / (
-            smd_max_adj - smd_1bar
-        )
+        rm_moist = RMF_MOIST_MIN + (RMF_MOIST_MAX - RMF_MOIST_MIN) * (
+            smd_max_adj - swc_new
+        ) / (smd_max_adj - smd_1bar)
 
     return rm_moist, swc_new
 
@@ -331,12 +325,7 @@ def plant_cover_rate_modifier(pc: bool) -> float:
     Returns:
         Rate modifying factor: 1.0 for bare soil, 0.6 for covered soil.
     """
-    if not pc:
-        rm_pc = RMF_PC_BARE
-    else:
-        rm_pc = RMF_PC_COVERED
-
-    return rm_pc
+    return RMF_PC_COVERED if pc else RMF_PC_BARE
 
 
 def decompose_single_pool(
@@ -393,9 +382,9 @@ def calculate_radiocarbon_age(pool_new: float, ract_new: float, conr: float) -> 
     Returns:
         Radiocarbon age in years.
     """
-    if pool_new <= ZERO_THRESHOLD:
-        return ZERO_THRESHOLD
-    return log(pool_new / ract_new) / conr
+    return (
+        log(pool_new / ract_new) / conr if pool_new > ZERO_THRESHOLD else ZERO_THRESHOLD
+    )
 
 
 def decompose_pools(
@@ -406,12 +395,6 @@ def decompose_pools(
     c_inp: float,
     fym_inp: float,
     dpm_rpm: float,
-    *,
-    dpm_k: float = DPM_RATE,
-    rpm_k: float = RPM_RATE,
-    bio_k: float = BIO_RATE,
-    hum_k: float = HUM_RATE,
-    radio_halflife: float = RADIO_HALFLIFE,
 ) -> CarbonState:
     """Calculate decomposition and radiocarbon age for soil carbon pools.
 
@@ -427,11 +410,6 @@ def decompose_pools(
         c_inp: Plant carbon input (t C/ha).
         fym_inp: Farmyard manure carbon input (t C/ha).
         dpm_rpm: Ratio of DPM to RPM in plant inputs.
-        dpm_k: Decomposition rate constant for DPM (default: DPM_RATE).
-        rpm_k: Decomposition rate constant for RPM (default: RPM_RATE).
-        bio_k: Decomposition rate constant for BIO (default: BIO_RATE).
-        hum_k: Decomposition rate constant for HUM (default: HUM_RATE).
-        radio_halflife: Radiocarbon half-life in years (default: RADIO_HALFLIFE).
 
     Returns:
         Updated CarbonState.
@@ -447,23 +425,23 @@ def decompose_pools(
     hum_rc_age = state.hum_rc_age
     iom_age = state.iom_age
 
-    conr = log(2.0) / radio_halflife
+    conr = log(2.0) / RADIO_HALFLIFE
 
     tstep = 1.0 / MONTHS_PER_YEAR
 
     exc = exp(-conr * tstep)
 
-    dpm1, dpm_d = decompose_single_pool(dpm, dpm_k, rate_m, tstep)
-    rpm1, rpm_d = decompose_single_pool(rpm, rpm_k, rate_m, tstep)
-    bio1, bio_d = decompose_single_pool(bio, bio_k, rate_m, tstep)
-    hum1, hum_d = decompose_single_pool(hum, hum_k, rate_m, tstep)
+    dpm1, dpm_d = decompose_single_pool(dpm, DPM_RATE, rate_m, tstep)
+    rpm1, rpm_d = decompose_single_pool(rpm, RPM_RATE, rate_m, tstep)
+    bio1, bio_d = decompose_single_pool(bio, BIO_RATE, rate_m, tstep)
+    hum1, hum_d = decompose_single_pool(hum, HUM_RATE, rate_m, tstep)
 
     x = CLAW_A * (CLAW_B + CLAW_C * exp(-CLAW_D * clay))
 
-    dpm_co2, dpm_bio, dpm_hum = partition_carbon_flows(dpm_d, x)
-    rpm_co2, rpm_bio, rpm_hum = partition_carbon_flows(rpm_d, x)
-    bio_co2, bio_bio, bio_hum = partition_carbon_flows(bio_d, x)
-    hum_co2, hum_bio, hum_hum = partition_carbon_flows(hum_d, x)
+    _, dpm_bio, dpm_hum = partition_carbon_flows(dpm_d, x)
+    _, rpm_bio, rpm_hum = partition_carbon_flows(rpm_d, x)
+    _, bio_bio, bio_hum = partition_carbon_flows(bio_d, x)
+    _, hum_bio, hum_hum = partition_carbon_flows(hum_d, x)
 
     dpm_new = dpm1
     rpm_new = rpm1
