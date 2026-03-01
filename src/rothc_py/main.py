@@ -205,6 +205,27 @@ EQUILIBRIUM_THRESHOLD = 1e-6
 
 @dataclass
 class CarbonState:
+    """Soil carbon pool state for the RothC model.
+
+    Represents the state of all carbon pools and their radiocarbon ages
+    at a given timestep.
+
+    Attributes:
+        dpm: Decomposable Plant Material (t C/ha).
+        rpm: Resistant Plant Material (t C/ha).
+        bio: Microbial Biomass (t C/ha).
+        hum: Humified Organic Matter (t C/ha).
+        iom: Inert Organic Matter (t C/ha).
+        soc: Total Soil Organic Carbon (t C/ha).
+        dpm_rc_age: Radiocarbon age of DPM pool (years).
+        rpm_rc_age: Radiocarbon age of RPM pool (years).
+        bio_rc_age: Radiocarbon age of BIO pool (years).
+        hum_rc_age: Radiocarbon age of HUM pool (years).
+        iom_age: Radiocarbon age of IOM pool (years).
+        total_rc_age: Radiocarbon age of total SOC (years).
+        swc: Soil water content/deficit (mm).
+    """
+
     dpm: float
     rpm: float
     bio: float
@@ -221,6 +242,10 @@ class CarbonState:
 
     @classmethod
     def zero(cls) -> Self:
+        """Create a CarbonState with all pools initialized to zero.
+
+        The IOM age is set to the default value (50000 years).
+        """
         return cls(
             dpm=0.0,
             rpm=0.0,
