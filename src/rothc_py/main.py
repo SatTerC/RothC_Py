@@ -910,7 +910,19 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
     total_delta = (math.exp(-total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
     print(j, dpm, rpm, bio, hum, iom, soc, total_delta)
 
-    year_list = [[1, j + 1, dpm, rpm, bio, hum, iom, soc, total_delta]]
+    year_list = [
+        {
+            "Year": 1,
+            "Month": j + 1,
+            "DPM_t_C_ha": dpm,
+            "RPM_t_C_ha": rpm,
+            "BIO_t_C_ha": bio,
+            "HUM_t_C_ha": hum,
+            "IOM_t_C_ha": iom,
+            "SOC_t_C_ha": soc,
+            "deltaC": total_delta,
+        }
+    ]
 
     month_list = []
 
@@ -986,67 +998,38 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             soc,
         )
 
-        month_list.insert(
-            i - time_step,
-            [
-                data["t_year"][i],
-                data["t_month"][i],
-                dpm,
-                rpm,
-                bio,
-                hum,
-                iom,
-                soc,
-                total_delta,
-            ],
+        month_list.append(
+            {
+                "Year": data["t_year"][i],
+                "Month": data["t_month"][i],
+                "DPM_t_C_ha": dpm,
+                "RPM_t_C_ha": rpm,
+                "BIO_t_C_ha": bio,
+                "HUM_t_C_ha": hum,
+                "IOM_t_C_ha": iom,
+                "SOC_t_C_ha": soc,
+                "deltaC": total_delta,
+            }
         )
 
         if data["t_month"][i] == time_step:
-            time_step_index = int(i / time_step)
-            year_list.insert(
-                time_step_index,
-                [
-                    data["t_year"][i],
-                    data["t_month"][i],
-                    dpm,
-                    rpm,
-                    bio,
-                    hum,
-                    iom,
-                    soc,
-                    total_delta,
-                ],
+            year_list.append(
+                {
+                    "Year": data["t_year"][i],
+                    "Month": data["t_month"][i],
+                    "DPM_t_C_ha": dpm,
+                    "RPM_t_C_ha": rpm,
+                    "BIO_t_C_ha": bio,
+                    "HUM_t_C_ha": hum,
+                    "IOM_t_C_ha": iom,
+                    "SOC_t_C_ha": soc,
+                    "deltaC": total_delta,
+                }
             )
             print(i, dpm, rpm, bio, hum, iom, soc, total_delta)
 
-    output_years = pd.DataFrame(
-        year_list,
-        columns=[
-            "Year",
-            "Month",
-            "DPM_t_C_ha",
-            "RPM_t_C_ha",
-            "BIO_t_C_ha",
-            "HUM_t_C_ha",
-            "IOM_t_C_ha",
-            "SOC_t_C_ha",
-            "deltaC",
-        ],
-    )
-    output_months = pd.DataFrame(
-        month_list,
-        columns=[
-            "Year",
-            "Month",
-            "DPM_t_C_ha",
-            "RPM_t_C_ha",
-            "BIO_t_C_ha",
-            "HUM_t_C_ha",
-            "IOM_t_C_ha",
-            "SOC_t_C_ha",
-            "deltaC",
-        ],
-    )
+    output_years = pd.DataFrame(year_list)
+    output_months = pd.DataFrame(month_list)
 
     output_years.to_csv(output_dir / "year_results.csv", index=False)
     output_months.to_csv(output_dir / "month_results.csv", index=False)
