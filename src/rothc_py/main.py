@@ -59,8 +59,6 @@ at commit bd90ce3cf616d5316042b73a3b1f09c5b6e3b361 (Mar 12, 2025).
 import math
 from pathlib import Path
 
-import pandas as pd
-
 
 # =============================================================================
 # Radiocarbon Constants
@@ -283,7 +281,9 @@ def plant_cover_rate_modifier(pc: bool) -> float:
     return rm_pc
 
 
-def _decompose_single_pool(pool: float, rate_k: float, rate_m: float, tstep: float) -> tuple[float, float]:
+def _decompose_single_pool(
+    pool: float, rate_k: float, rate_m: float, tstep: float
+) -> tuple[float, float]:
     """Decompose a carbon pool using first-order decay kinetics.
 
     Args:
@@ -644,7 +644,7 @@ def run_rothc_timestep(
 
 
 def spin_up_to_equilibrium(
-    df: pd.DataFrame,
+    data: dict[str, list],
     dpm: float,
     rpm: float,
     bio: float,
@@ -660,7 +660,21 @@ def spin_up_to_equilibrium(
     depth: float,
     time_step: float = MONTHS_PER_YEAR,
 ) -> tuple[
-    float, float, float, float, float, float, float, float, float, float, float, float, float, int, int
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    float,
+    int,
+    int,
 ]:
     """Spin up the RothC model to equilibrium using an acceleration technique.
 
@@ -674,7 +688,7 @@ def spin_up_to_equilibrium(
     applying the same climate/input year until equilibrium is reached.
 
     Args:
-        df: DataFrame containing monthly climate and input data. Must have columns:
+        data: Dictionary containing monthly climate and input data. Must have keys:
             t_tmp, t_rain, t_evap, t_PC, t_DPM_RPM, t_C_Inp, t_FYM_Inp, t_mod
         dpm: Initial Decomposable Plant Material pool (t C/ha).
         rpm: Initial Resistant Plant Material pool (t C/ha).
@@ -713,17 +727,17 @@ def spin_up_to_equilibrium(
         if k == time_step:
             k = 0
 
-        temp = df.t_tmp[k]
-        rain = df.t_rain[k]
-        pevap = df.t_evap[k]
+        temp = data["t_tmp"][k]
+        rain = data["t_rain"][k]
+        pevap = data["t_evap"][k]
 
-        pc = bool(df.t_PC[k])
-        dpm_rpm = df.t_DPM_RPM[k]
+        pc = bool(data["t_PC"][k])
+        dpm_rpm = data["t_DPM_RPM"][k]
 
-        c_inp = df.t_C_Inp[k]
-        fym_inp = df.t_FYM_Inp[k]
+        c_inp = data["t_C_Inp"][k]
+        fym_inp = data["t_FYM_Inp"][k]
 
-        modern_c = df.t_mod[k] / 100.0
+        modern_c = data["t_mod"][k] / 100.0
 
         total_rc_age = 0.0
 
@@ -800,6 +814,8 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         input_path: Path to the input data file.
         output_dir: Directory where output CSV files will be written.
     """
+    import pandas as pd
+
     input_path = Path(input_path)
     output_dir = Path(output_dir)
 
@@ -851,6 +867,8 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         "t_DPM_RPM",
     ]
 
+    data = {col: df[col].tolist() for col in df.columns}
+
     # spin up to equilibrium
     print(0, dpm, rpm, bio, hum, iom, soc)
 
@@ -871,7 +889,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         j,
         _,
     ) = spin_up_to_equilibrium(
-        df,
+        data,
         dpm,
         rpm,
         bio,
@@ -892,24 +910,22 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
     total_delta = (math.exp(-total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
     print(j, dpm, rpm, bio, hum, iom, soc, total_delta)
 
-    k = -1
-
     year_list = [[1, j + 1, dpm, rpm, bio, hum, iom, soc, total_delta]]
 
     month_list = []
 
     for i in range(time_step, nsteps):
-        temp = df.t_tmp[i]
-        rain = df.t_rain[i]
-        pevap = df.t_evap[i]
+        temp = data["t_tmp"][i]
+        rain = data["t_rain"][i]
+        pevap = data["t_evap"][i]
 
-        pc = bool(df.t_PC[i])
-        dpm_rpm = df.t_DPM_RPM[i]
+        pc = bool(data["t_PC"][i])
+        dpm_rpm = data["t_DPM_RPM"][i]
 
-        c_inp = df.t_C_Inp[i]
-        fym_inp = df.t_FYM_Inp[i]
+        c_inp = data["t_C_Inp"][i]
+        fym_inp = data["t_FYM_Inp"][i]
 
-        modern_c = df.t_mod[i] / 100.0
+        modern_c = data["t_mod"][i] / 100.0
 
         (
             dpm,
@@ -973,8 +989,8 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         month_list.insert(
             i - time_step,
             [
-                df.loc[i, "t_year"],
-                df.loc[i, "t_month"],
+                data["t_year"][i],
+                data["t_month"][i],
                 dpm,
                 rpm,
                 bio,
@@ -985,13 +1001,13 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             ],
         )
 
-        if df.t_month[i] == time_step:
+        if data["t_month"][i] == time_step:
             time_step_index = int(i / time_step)
             year_list.insert(
                 time_step_index,
                 [
-                    df.loc[i, "t_year"],
-                    df.loc[i, "t_month"],
+                    data["t_year"][i],
+                    data["t_month"][i],
                     dpm,
                     rpm,
                     bio,
