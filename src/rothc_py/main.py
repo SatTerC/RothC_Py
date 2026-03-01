@@ -57,6 +57,7 @@ at commit bd90ce3cf616d5316042b73a3b1f09c5b6e3b361 (Mar 12, 2025).
 """
 
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -181,6 +182,53 @@ MONTHS_PER_YEAR = 12
 
 # Equilibrium threshold - simulation stops when annual TOC change < this
 EQUILIBRIUM_THRESHOLD = 1e-6
+
+
+# =============================================================================
+# Data Classes
+# =============================================================================
+
+
+@dataclass
+class SoilParams:
+    clay: float
+    depth: float
+    iom: float
+
+
+@dataclass
+class CarbonState:
+    dpm: float
+    rpm: float
+    bio: float
+    hum: float
+    iom: float
+    soc: float
+    dpm_rc_age: float
+    rpm_rc_age: float
+    bio_rc_age: float
+    hum_rc_age: float
+    iom_age: float
+    total_rc_age: float
+    swc: float
+
+    @classmethod
+    def zero(cls) -> "CarbonState":
+        return cls(
+            dpm=0.0,
+            rpm=0.0,
+            bio=0.0,
+            hum=0.0,
+            iom=0.0,
+            soc=0.0,
+            dpm_rc_age=0.0,
+            rpm_rc_age=0.0,
+            bio_rc_age=0.0,
+            hum_rc_age=0.0,
+            iom_age=IOM_INITIAL_AGE,
+            total_rc_age=0.0,
+            swc=0.0,
+        )
 
 
 def temperature_rate_modifier(temp: float, *, temp_min: float = TEMP_MIN) -> float:
@@ -342,18 +390,7 @@ def _calculate_radiocarbon_age(pool_new: float, ract_new: float, conr: float) ->
 
 def decompose_pools(
     time_step: float,
-    dpm: float,
-    rpm: float,
-    bio: float,
-    hum: float,
-    iom: float,
-    soc: float,
-    dpm_rc_age: float,
-    rpm_rc_age: float,
-    bio_rc_age: float,
-    hum_rc_age: float,
-    iom_age: float,
-    total_rc_age: float,
+    state: CarbonState,
     modern_c: float,
     rate_m: float,
     clay: float,
@@ -366,9 +403,7 @@ def decompose_pools(
     bio_k: float = BIO_RATE,
     hum_k: float = HUM_RATE,
     radio_halflife: float = RADIO_HALFLIFE,
-) -> tuple[
-    float, float, float, float, float, float, float, float, float, float, float, float
-]:
+) -> CarbonState:
     """Calculate decomposition and radiocarbon age for soil carbon pools.
 
     Performs monthly carbon pool updates including: first-order decay
@@ -377,19 +412,9 @@ def decompose_pools(
 
     Args:
         time_step: Timestep factor (12 for monthly).
-        dpm: Decomposable Plant Material pool (t C/ha).
-        rpm: Resistant Plant Material pool (t C/ha).
-        bio: Microbial Biomass pool (t C/ha).
-        hum: Humified Organic Matter pool (t C/ha).
-        iom: Inert Organic Matter pool (t C/ha).
-        soc: Total Soil Organic Carbon (t C/ha).
-        dpm_rc_age: Radiocarbon age of DPM pool (years).
-        rpm_rc_age: Radiocarbon age of RPM pool (years).
-        bio_rc_age: Radiocarbon age of BIO pool (years).
-        hum_rc_age: Radiocarbon age of HUM pool (years).
-        iom_age: Radiocarbon age of IOM pool (years).
-        total_rc_age: Radiocarbon age of total SOC (years).
+        state: Current carbon state (pools and ages).
         modern_c: Fraction of modern carbon (0.0 to 1.0).
+        rate_m: Combined rate modifier.
         clay: Clay content of soil (%).
         c_inp: Plant carbon input (t C/ha).
         fym_inp: Farmyard manure carbon input (t C/ha).
@@ -401,8 +426,19 @@ def decompose_pools(
         radio_halflife: Radiocarbon half-life in years (default: RADIO_HALFLIFE).
 
     Returns:
-        Tuple of (dpm, rpm, bio, hum, iom, soc, dpm_rc_age, rpm_rc_age, bio_rc_age, hum_rc_age, iom_age, total_rc_age).
+        Updated CarbonState.
     """
+    dpm = state.dpm
+    rpm = state.rpm
+    bio = state.bio
+    hum = state.hum
+    iom = state.iom
+    dpm_rc_age = state.dpm_rc_age
+    rpm_rc_age = state.rpm_rc_age
+    bio_rc_age = state.bio_rc_age
+    hum_rc_age = state.hum_rc_age
+    iom_age = state.iom_age
+
     conr = math.log(2.0) / radio_halflife
 
     tstep = 1.0 / time_step  # monthly 1/12, or daily 1/365
@@ -493,39 +529,27 @@ def decompose_pools(
     hum_rc_age_new = _calculate_radiocarbon_age(hum_new, hum_ract_new, conr)
     total_rc_age_new = _calculate_radiocarbon_age(soc_new, total_ract, conr)
 
-    return (
-        dpm_new,
-        rpm_new,
-        bio_new,
-        hum_new,
-        iom,
-        soc_new,
-        dpm_rc_age_new,
-        rpm_rc_age_new,
-        bio_rc_age_new,
-        hum_rc_age_new,
-        iom_age,
-        total_rc_age_new,
+    return CarbonState(
+        dpm=dpm_new,
+        rpm=rpm_new,
+        bio=bio_new,
+        hum=hum_new,
+        iom=iom,
+        soc=soc_new,
+        dpm_rc_age=dpm_rc_age_new,
+        rpm_rc_age=rpm_rc_age_new,
+        bio_rc_age=bio_rc_age_new,
+        hum_rc_age=hum_rc_age_new,
+        iom_age=iom_age,
+        total_rc_age=total_rc_age_new,
+        swc=state.swc,
     )
 
 
 def run_rothc_timestep(
     time_step: float,
-    dpm: float,
-    rpm: float,
-    bio: float,
-    hum: float,
-    iom: float,
-    soc: float,
-    dpm_rc_age: float,
-    rpm_rc_age: float,
-    bio_rc_age: float,
-    hum_rc_age: float,
-    iom_age: float,
-    total_rc_age: float,
-    modern_c: float,
-    clay: float,
-    depth: float,
+    state: CarbonState,
+    soil: SoilParams,
     temp: float,
     rain: float,
     pevap: float,
@@ -533,22 +557,8 @@ def run_rothc_timestep(
     dpm_rpm: float,
     c_inp: float,
     fym_inp: float,
-    swc: float,
-) -> tuple[
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-]:
+    modern_c: float,
+) -> CarbonState:
     """Run one timestep of the RothC carbon model.
 
     Calculates rate modifying factors for temperature, moisture, and plant
@@ -556,21 +566,8 @@ def run_rothc_timestep(
 
     Args:
         time_step: Timestep factor (12 for monthly).
-        dpm: Decomposable Plant Material pool (t C/ha).
-        rpm: Resistant Plant Material pool (t C/ha).
-        bio: Microbial Biomass pool (t C/ha).
-        hum: Humified Organic Matter pool (t C/ha).
-        iom: Inert Organic Matter pool (t C/ha).
-        soc: Total Soil Organic Carbon (t C/ha).
-        dpm_rc_age: Radiocarbon age of DPM pool (years).
-        rpm_rc_age: Radiocarbon age of RPM pool (years).
-        bio_rc_age: Radiocarbon age of BIO pool (years).
-        hum_rc_age: Radiocarbon age of HUM pool (years).
-        iom_age: Radiocarbon age of IOM pool (years).
-        total_rc_age: Radiocarbon age of total SOC (years).
-        modern_c: Fraction of modern carbon (0.0 to 1.0).
-        clay: Clay content of soil (%).
-        depth: Depth of topsoil (cm).
+        state: Current carbon state (pools and ages).
+        soil: Soil parameters (clay, depth, iom).
         temp: Monthly mean air temperature (°C).
         rain: Monthly rainfall (mm).
         pevap: Open pan evaporation (mm).
@@ -578,104 +575,41 @@ def run_rothc_timestep(
         dpm_rpm: Ratio of DPM to RPM in plant inputs.
         c_inp: Plant carbon input (t C/ha).
         fym_inp: Farmyard manure carbon input (t C/ha).
-        swc: Soil water content/deficit (mm).
+        modern_c: Fraction of modern carbon (0.0 to 1.0).
 
     Returns:
-        Tuple of (dpm, rpm, bio, hum, iom, soc, dpm_rc_age, rpm_rc_age, bio_rc_age, hum_rc_age, iom_age, total_rc_age, swc).
+        Updated CarbonState.
     """
-    # Calculate RMFs
     rm_tmp = temperature_rate_modifier(temp)
-    rm_moist, swc = moisture_rate_modifier(rain, pevap, clay, depth, pc, swc)
+    rm_moist, swc = moisture_rate_modifier(
+        rain, pevap, soil.clay, soil.depth, pc, state.swc
+    )
     rm_pc = plant_cover_rate_modifier(pc)
 
-    # Combine RMF's into one.
     rate_m = rm_tmp * rm_moist * rm_pc
 
-    (
-        dpm,
-        rpm,
-        bio,
-        hum,
-        iom,
-        soc,
-        dpm_rc_age,
-        rpm_rc_age,
-        bio_rc_age,
-        hum_rc_age,
-        iom_age,
-        total_rc_age,
-    ) = decompose_pools(
+    new_state = decompose_pools(
         time_step,
-        dpm,
-        rpm,
-        bio,
-        hum,
-        iom,
-        soc,
-        dpm_rc_age,
-        rpm_rc_age,
-        bio_rc_age,
-        hum_rc_age,
-        iom_age,
-        total_rc_age,
+        state,
         modern_c,
         rate_m,
-        clay,
+        soil.clay,
         c_inp,
         fym_inp,
         dpm_rpm,
     )
 
-    return (
-        dpm,
-        rpm,
-        bio,
-        hum,
-        iom,
-        soc,
-        dpm_rc_age,
-        rpm_rc_age,
-        bio_rc_age,
-        hum_rc_age,
-        iom_age,
-        total_rc_age,
-        swc,
-    )
+    new_state.swc = swc
+
+    return new_state
 
 
 def spin_up_to_equilibrium(
     data: dict[str, list],
-    dpm: float,
-    rpm: float,
-    bio: float,
-    hum: float,
-    iom: float,
-    dpm_rc_age: float,
-    rpm_rc_age: float,
-    bio_rc_age: float,
-    hum_rc_age: float,
-    iom_age: float,
-    swc: float,
-    clay: float,
-    depth: float,
+    state: CarbonState,
+    soil: SoilParams,
     time_step: float = MONTHS_PER_YEAR,
-) -> tuple[
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    float,
-    int,
-    int,
-]:
+) -> tuple[CarbonState, int, int]:
     """Spin up the RothC model to equilibrium using an acceleration technique.
 
     This function implements the RothC spin-up procedure, which accelerates the
@@ -690,30 +624,13 @@ def spin_up_to_equilibrium(
     Args:
         data: Dictionary containing monthly climate and input data. Must have keys:
             t_tmp, t_rain, t_evap, t_PC, t_DPM_RPM, t_C_Inp, t_FYM_Inp, t_mod
-        dpm: Initial Decomposable Plant Material pool (t C/ha).
-        rpm: Initial Resistant Plant Material pool (t C/ha).
-        bio: Initial Microbial Biomass pool (t C/ha).
-        hum: Initial Humified Organic Matter pool (t C/ha).
-        iom: Inert Organic Matter pool (t C/ha) - remains constant.
-        dpm_rc_age: Initial radiocarbon age of DPM pool (years).
-        rpm_rc_age: Initial radiocarbon age of RPM pool (years).
-        bio_rc_age: Initial radiocarbon age of BIO pool (years).
-        hum_rc_age: Initial radiocarbon age of HUM pool (years).
-        iom_age: Initial radiocarbon age of IOM pool (years).
-        swc: Initial soil water content/deficit (mm).
-        clay: Clay content of soil (%).
-        depth: Depth of topsoil (cm).
+        state: Initial carbon state.
+        soil: Soil parameters (clay, depth, iom).
         time_step: Timestep factor (default: MONTHS_PER_YEAR = 12 for monthly).
 
     Returns:
-        Tuple containing:
-        - dpm, rpm, bio, hum, iom, soc: Equilibrium carbon pools (t C/ha)
-        - dpm_rc_age, rpm_rc_age, bio_rc_age, hum_rc_age, iom_age, total_rc_age: Radiocarbon ages (years)
-        - swc: Final soil water content (mm)
-        - n_cycles: Number of complete cycles (years) run to reach equilibrium
-        - n_iterations: Total number of iterations (months) run
+        Tuple of (final state, n_cycles, n_iterations).
     """
-    soc = dpm + rpm + bio + hum + iom
     toc_prev = 0.0
     n_cycles = -1
     k = -1
@@ -739,39 +656,10 @@ def spin_up_to_equilibrium(
 
         modern_c = data["t_mod"][k] / 100.0
 
-        total_rc_age = 0.0
-
-        (
-            dpm,
-            rpm,
-            bio,
-            hum,
-            iom,
-            soc,
-            dpm_rc_age,
-            rpm_rc_age,
-            bio_rc_age,
-            hum_rc_age,
-            iom_age,
-            total_rc_age,
-            swc,
-        ) = run_rothc_timestep(
+        state = run_rothc_timestep(
             time_step,
-            dpm,
-            rpm,
-            bio,
-            hum,
-            iom,
-            soc,
-            dpm_rc_age,
-            rpm_rc_age,
-            bio_rc_age,
-            hum_rc_age,
-            iom_age,
-            total_rc_age,
-            modern_c,
-            clay,
-            depth,
+            state,
+            soil,
             temp,
             rain,
             pevap,
@@ -779,48 +667,28 @@ def spin_up_to_equilibrium(
             dpm_rpm,
             c_inp,
             fym_inp,
-            swc,
+            modern_c,
         )
 
         if (k + 1) % time_step == 0:
-            toc_curr = dpm + rpm + bio + hum
+            toc_curr = state.dpm + state.rpm + state.bio + state.hum
             if abs(toc_curr - toc_prev) < EQUILIBRIUM_THRESHOLD:
                 break
             toc_prev = toc_curr
 
-    return (
-        dpm,
-        rpm,
-        bio,
-        hum,
-        iom,
-        soc,
-        dpm_rc_age,
-        rpm_rc_age,
-        bio_rc_age,
-        hum_rc_age,
-        iom_age,
-        total_rc_age,
-        swc,
-        n_cycles,
-        total_iterations,
-    )
+    return state, n_cycles, total_iterations
 
 
 def run_simulation(
     data: dict[str, list],
-    clay: float,
-    depth: float,
-    iom: float,
+    soil: SoilParams,
     nsteps: int,
 ) -> tuple[list[dict], list[dict]]:
     """Run the RothC model simulation.
 
     Args:
         data: Dictionary containing monthly climate and input data.
-        clay: Clay content of the soil (%).
-        depth: Depth of topsoil (cm).
-        iom: Inert Organic Matter (t C/ha).
+        soil: Soil parameters (clay, depth, iom).
         nsteps: Number of timesteps in the input data.
 
     Returns:
@@ -828,68 +696,34 @@ def run_simulation(
     """
     time_step = MONTHS_PER_YEAR
 
-    dpm = 0.0
-    rpm = 0.0
-    bio = 0.0
-    hum = 0.0
-    soc = 0.0
+    state = CarbonState.zero()
+    state.iom = soil.iom
 
-    dpm_rc_age = 0.0
-    rpm_rc_age = 0.0
-    bio_rc_age = 0.0
-    hum_rc_age = 0.0
-    iom_age = IOM_INITIAL_AGE
-
-    swc = 0.0
-
-    print(0, dpm, rpm, bio, hum, iom, soc)
+    print(0, state.dpm, state.rpm, state.bio, state.hum, state.iom, state.soc)
 
     (
-        dpm,
-        rpm,
-        bio,
-        hum,
-        iom,
-        soc,
-        dpm_rc_age,
-        rpm_rc_age,
-        bio_rc_age,
-        hum_rc_age,
-        iom_age,
-        total_rc_age,
-        swc,
+        state,
         j,
         _,
     ) = spin_up_to_equilibrium(
         data,
-        dpm,
-        rpm,
-        bio,
-        hum,
-        iom,
-        dpm_rc_age,
-        rpm_rc_age,
-        bio_rc_age,
-        hum_rc_age,
-        iom_age,
-        swc,
-        clay,
-        depth,
+        state,
+        soil,
     )
 
-    total_delta = (math.exp(-total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
-    print(j, dpm, rpm, bio, hum, iom, soc, total_delta)
+    total_delta = (math.exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
+    print(j, state.dpm, state.rpm, state.bio, state.hum, state.iom, state.soc, total_delta)
 
     year_results = [
         {
             "Year": 1,
             "Month": j + 1,
-            "DPM_t_C_ha": dpm,
-            "RPM_t_C_ha": rpm,
-            "BIO_t_C_ha": bio,
-            "HUM_t_C_ha": hum,
-            "IOM_t_C_ha": iom,
-            "SOC_t_C_ha": soc,
+            "DPM_t_C_ha": state.dpm,
+            "RPM_t_C_ha": state.rpm,
+            "BIO_t_C_ha": state.bio,
+            "HUM_t_C_ha": state.hum,
+            "IOM_t_C_ha": state.iom,
+            "SOC_t_C_ha": state.soc,
             "deltaC": total_delta,
         }
     ]
@@ -909,37 +743,10 @@ def run_simulation(
 
         modern_c = data["t_mod"][i] / 100.0
 
-        (
-            dpm,
-            rpm,
-            bio,
-            hum,
-            iom,
-            soc,
-            dpm_rc_age,
-            rpm_rc_age,
-            bio_rc_age,
-            hum_rc_age,
-            iom_age,
-            total_rc_age,
-            swc,
-        ) = run_rothc_timestep(
+        state = run_rothc_timestep(
             time_step,
-            dpm,
-            rpm,
-            bio,
-            hum,
-            iom,
-            soc,
-            dpm_rc_age,
-            rpm_rc_age,
-            bio_rc_age,
-            hum_rc_age,
-            iom_age,
-            total_rc_age,
-            modern_c,
-            clay,
-            depth,
+            state,
+            soil,
             temp,
             rain,
             pevap,
@@ -947,10 +754,10 @@ def run_simulation(
             dpm_rpm,
             c_inp,
             fym_inp,
-            swc,
+            modern_c,
         )
 
-        total_delta = (math.exp(-total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
+        total_delta = (math.exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
 
         print(
             c_inp,
@@ -958,26 +765,26 @@ def run_simulation(
             temp,
             rain,
             pevap,
-            swc,
+            state.swc,
             pc,
-            dpm,
-            rpm,
-            bio,
-            hum,
-            iom,
-            soc,
+            state.dpm,
+            state.rpm,
+            state.bio,
+            state.hum,
+            state.iom,
+            state.soc,
         )
 
         month_results.append(
             {
                 "Year": data["t_year"][i],
                 "Month": data["t_month"][i],
-                "DPM_t_C_ha": dpm,
-                "RPM_t_C_ha": rpm,
-                "BIO_t_C_ha": bio,
-                "HUM_t_C_ha": hum,
-                "IOM_t_C_ha": iom,
-                "SOC_t_C_ha": soc,
+                "DPM_t_C_ha": state.dpm,
+                "RPM_t_C_ha": state.rpm,
+                "BIO_t_C_ha": state.bio,
+                "HUM_t_C_ha": state.hum,
+                "IOM_t_C_ha": state.iom,
+                "SOC_t_C_ha": state.soc,
                 "deltaC": total_delta,
             }
         )
@@ -987,16 +794,16 @@ def run_simulation(
                 {
                     "Year": data["t_year"][i],
                     "Month": data["t_month"][i],
-                    "DPM_t_C_ha": dpm,
-                    "RPM_t_C_ha": rpm,
-                    "BIO_t_C_ha": bio,
-                    "HUM_t_C_ha": hum,
-                    "IOM_t_C_ha": iom,
-                    "SOC_t_C_ha": soc,
+                    "DPM_t_C_ha": state.dpm,
+                    "RPM_t_C_ha": state.rpm,
+                    "BIO_t_C_ha": state.bio,
+                    "HUM_t_C_ha": state.hum,
+                    "IOM_t_C_ha": state.iom,
+                    "SOC_t_C_ha": state.soc,
                     "deltaC": total_delta,
                 }
             )
-            print(i, dpm, rpm, bio, hum, iom, soc, total_delta)
+            print(i, state.dpm, state.rpm, state.bio, state.hum, state.iom, state.soc, total_delta)
 
     return year_results, month_results
 
@@ -1025,6 +832,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
     depth = df_head.loc[0, "depth"]
     iom = float(df_head.loc[0, "iom"])
     nsteps = df_head.loc[0, "nsteps"]
+    soil = SoilParams(clay=clay, depth=depth, iom=iom)
     df = pd.read_csv(input_path, skiprows=6, header=0, index_col=None, sep=r"\s+")
     print(df)
     df.columns = [
@@ -1042,7 +850,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
 
     data = {col: df[col].tolist() for col in df.columns}
 
-    year_results, month_results = run_simulation(data, clay, depth, iom, nsteps)
+    year_results, month_results = run_simulation(data, soil, nsteps)
 
     output_years = pd.DataFrame(year_results)
     output_months = pd.DataFrame(month_results)
