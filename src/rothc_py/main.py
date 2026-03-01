@@ -56,9 +56,10 @@ at commit bd90ce3cf616d5316042b73a3b1f09c5b6e3b361 (Mar 12, 2025).
 ######################################################################################################################
 """
 
-import math
 from dataclasses import dataclass
+from math import exp, log
 from pathlib import Path
+from typing import Self
 
 
 # =============================================================================
@@ -213,7 +214,7 @@ class CarbonState:
     swc: float
 
     @classmethod
-    def zero(cls) -> "CarbonState":
+    def zero(cls) -> Self:
         return cls(
             dpm=0.0,
             rpm=0.0,
@@ -247,7 +248,7 @@ def temperature_rate_modifier(temp: float, *, temp_min: float = TEMP_MIN) -> flo
     if temp < temp_min:
         rm_tmp = 0.0
     else:
-        rm_tmp = JENKINSON_A / (math.exp(JENKINSON_B / (temp + JENKINSON_C)) + 1.0)
+        rm_tmp = JENKINSON_A / (exp(JENKINSON_B / (temp + JENKINSON_C)) + 1.0)
 
     return rm_tmp
 
@@ -343,7 +344,7 @@ def _decompose_single_pool(
     Returns:
         Tuple of (remaining_pool, decomposed_amount).
     """
-    remaining = pool * math.exp(-rate_m * rate_k * tstep)
+    remaining = pool * exp(-rate_m * rate_k * tstep)
     decomposed = pool - remaining
     return remaining, decomposed
 
@@ -385,7 +386,7 @@ def _calculate_radiocarbon_age(pool_new: float, ract_new: float, conr: float) ->
     """
     if pool_new <= ZERO_THRESHOLD:
         return ZERO_THRESHOLD
-    return math.log(pool_new / ract_new) / conr
+    return log(pool_new / ract_new) / conr
 
 
 def decompose_pools(
@@ -437,11 +438,11 @@ def decompose_pools(
     hum_rc_age = state.hum_rc_age
     iom_age = state.iom_age
 
-    conr = math.log(2.0) / radio_halflife
+    conr = log(2.0) / radio_halflife
 
     tstep = 1.0 / MONTHS_PER_YEAR
 
-    exc = math.exp(-conr * tstep)
+    exc = exp(-conr * tstep)
 
     # decomposition
     dpm1, dpm_d = _decompose_single_pool(dpm, dpm_k, rate_m, tstep)
@@ -449,7 +450,7 @@ def decompose_pools(
     bio1, bio_d = _decompose_single_pool(bio, bio_k, rate_m, tstep)
     hum1, hum_d = _decompose_single_pool(hum, hum_k, rate_m, tstep)
 
-    x = CLAW_A * (CLAW_B + CLAW_C * math.exp(-CLAW_D * clay))
+    x = CLAW_A * (CLAW_B + CLAW_C * exp(-CLAW_D * clay))
 
     # proportion C from each pool into CO2, BIO and HUM
     dpm_co2, dpm_bio, dpm_hum = _partition_carbon_flows(dpm_d, x)
@@ -478,22 +479,22 @@ def decompose_pools(
     hum_new = hum_new + fym_c_hum
 
     # calc new ract of each pool
-    dpm_ract = dpm1 * math.exp(-conr * dpm_rc_age)
-    rpm_ract = rpm1 * math.exp(-conr * rpm_rc_age)
+    dpm_ract = dpm1 * exp(-conr * dpm_rc_age)
+    rpm_ract = rpm1 * exp(-conr * rpm_rc_age)
 
-    bio_ract = bio1 * math.exp(-conr * bio_rc_age)
-    dpm_bio_ract = dpm_bio * math.exp(-conr * dpm_rc_age)
-    rpm_bio_ract = rpm_bio * math.exp(-conr * rpm_rc_age)
-    bio_bio_ract = bio_bio * math.exp(-conr * bio_rc_age)
-    hum_bio_ract = hum_bio * math.exp(-conr * hum_rc_age)
+    bio_ract = bio1 * exp(-conr * bio_rc_age)
+    dpm_bio_ract = dpm_bio * exp(-conr * dpm_rc_age)
+    rpm_bio_ract = rpm_bio * exp(-conr * rpm_rc_age)
+    bio_bio_ract = bio_bio * exp(-conr * bio_rc_age)
+    hum_bio_ract = hum_bio * exp(-conr * hum_rc_age)
 
-    hum_ract = hum1 * math.exp(-conr * hum_rc_age)
-    dpm_hum_ract = dpm_hum * math.exp(-conr * dpm_rc_age)
-    rpm_hum_ract = rpm_hum * math.exp(-conr * rpm_rc_age)
-    bio_hum_ract = bio_hum * math.exp(-conr * bio_rc_age)
-    hum_hum_ract = hum_hum * math.exp(-conr * hum_rc_age)
+    hum_ract = hum1 * exp(-conr * hum_rc_age)
+    dpm_hum_ract = dpm_hum * exp(-conr * dpm_rc_age)
+    rpm_hum_ract = rpm_hum * exp(-conr * rpm_rc_age)
+    bio_hum_ract = bio_hum * exp(-conr * bio_rc_age)
+    hum_hum_ract = hum_hum * exp(-conr * hum_rc_age)
 
-    iom_ract = iom * math.exp(-conr * iom_age)
+    iom_ract = iom * exp(-conr * iom_age)
 
     # assign new C from plant and FYM the correct age
     pi_dpm_ract = modern_c * pi_c_dpm
@@ -701,8 +702,10 @@ def run_simulation(
         soil,
     )
 
-    total_delta = (math.exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
-    print(j, state.dpm, state.rpm, state.bio, state.hum, state.iom, state.soc, total_delta)
+    total_delta = (exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
+    print(
+        j, state.dpm, state.rpm, state.bio, state.hum, state.iom, state.soc, total_delta
+    )
 
     year_results = [
         {
@@ -746,7 +749,7 @@ def run_simulation(
             modern_c,
         )
 
-        total_delta = (math.exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
+        total_delta = (exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
 
         print(
             c_inp,
@@ -792,7 +795,16 @@ def run_simulation(
                     "deltaC": total_delta,
                 }
             )
-            print(i, state.dpm, state.rpm, state.bio, state.hum, state.iom, state.soc, total_delta)
+            print(
+                i,
+                state.dpm,
+                state.rpm,
+                state.bio,
+                state.hum,
+                state.iom,
+                state.soc,
+                total_delta,
+            )
 
     return year_results, month_results
 
