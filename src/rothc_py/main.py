@@ -389,7 +389,6 @@ def _calculate_radiocarbon_age(pool_new: float, ract_new: float, conr: float) ->
 
 
 def decompose_pools(
-    time_step: float,
     state: CarbonState,
     modern_c: float,
     rate_m: float,
@@ -411,7 +410,6 @@ def decompose_pools(
     respiration, and radiocarbon age calculations.
 
     Args:
-        time_step: Timestep factor (12 for monthly).
         state: Current carbon state (pools and ages).
         modern_c: Fraction of modern carbon (0.0 to 1.0).
         rate_m: Combined rate modifier.
@@ -441,7 +439,7 @@ def decompose_pools(
 
     conr = math.log(2.0) / radio_halflife
 
-    tstep = 1.0 / time_step  # monthly 1/12, or daily 1/365
+    tstep = 1.0 / MONTHS_PER_YEAR
 
     exc = math.exp(-conr * tstep)
 
@@ -547,7 +545,6 @@ def decompose_pools(
 
 
 def run_rothc_timestep(
-    time_step: float,
     state: CarbonState,
     soil: SoilParams,
     temp: float,
@@ -565,7 +562,6 @@ def run_rothc_timestep(
     cover, then performs decomposition and radiocarbon age updates.
 
     Args:
-        time_step: Timestep factor (12 for monthly).
         state: Current carbon state (pools and ages).
         soil: Soil parameters (clay, depth, iom).
         temp: Monthly mean air temperature (°C).
@@ -589,7 +585,6 @@ def run_rothc_timestep(
     rate_m = rm_tmp * rm_moist * rm_pc
 
     new_state = decompose_pools(
-        time_step,
         state,
         modern_c,
         rate_m,
@@ -608,7 +603,6 @@ def spin_up_to_equilibrium(
     data: dict[str, list],
     state: CarbonState,
     soil: SoilParams,
-    time_step: float = MONTHS_PER_YEAR,
 ) -> tuple[CarbonState, int, int]:
     """Spin up the RothC model to equilibrium using an acceleration technique.
 
@@ -626,7 +620,6 @@ def spin_up_to_equilibrium(
             t_tmp, t_rain, t_evap, t_PC, t_DPM_RPM, t_C_Inp, t_FYM_Inp, t_mod
         state: Initial carbon state.
         soil: Soil parameters (clay, depth, iom).
-        time_step: Timestep factor (default: MONTHS_PER_YEAR = 12 for monthly).
 
     Returns:
         Tuple of (final state, n_cycles, n_iterations).
@@ -641,7 +634,7 @@ def spin_up_to_equilibrium(
         total_iterations = total_iterations + 1
         n_cycles = n_cycles + 1
 
-        if k == time_step:
+        if k == MONTHS_PER_YEAR:
             k = 0
 
         temp = data["t_tmp"][k]
@@ -657,7 +650,6 @@ def spin_up_to_equilibrium(
         modern_c = data["t_mod"][k] / 100.0
 
         state = run_rothc_timestep(
-            time_step,
             state,
             soil,
             temp,
@@ -670,7 +662,7 @@ def spin_up_to_equilibrium(
             modern_c,
         )
 
-        if (k + 1) % time_step == 0:
+        if (k + 1) % MONTHS_PER_YEAR == 0:
             toc_curr = state.dpm + state.rpm + state.bio + state.hum
             if abs(toc_curr - toc_prev) < EQUILIBRIUM_THRESHOLD:
                 break
@@ -694,8 +686,6 @@ def run_simulation(
     Returns:
         Tuple of (year_results, month_results), each a list of dicts.
     """
-    time_step = MONTHS_PER_YEAR
-
     state = CarbonState.zero()
     state.iom = soil.iom
 
@@ -730,7 +720,7 @@ def run_simulation(
 
     month_results = []
 
-    for i in range(time_step, nsteps):
+    for i in range(MONTHS_PER_YEAR, nsteps):
         temp = data["t_tmp"][i]
         rain = data["t_rain"][i]
         pevap = data["t_evap"][i]
@@ -744,7 +734,6 @@ def run_simulation(
         modern_c = data["t_mod"][i] / 100.0
 
         state = run_rothc_timestep(
-            time_step,
             state,
             soil,
             temp,
@@ -789,7 +778,7 @@ def run_simulation(
             }
         )
 
-        if data["t_month"][i] == time_step:
+        if data["t_month"][i] == MONTHS_PER_YEAR:
             year_results.append(
                 {
                     "Year": data["t_year"][i],
