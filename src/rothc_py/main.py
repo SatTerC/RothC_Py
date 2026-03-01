@@ -58,8 +58,7 @@ at commit bd90ce3cf616d5316042b73a3b1f09c5b6e3b361 (Mar 12, 2025).
 
 from dataclasses import dataclass
 from math import exp, log
-from pathlib import Path
-from typing import Self, Union
+from typing import Self
 
 
 # =============================================================================
@@ -725,53 +724,3 @@ class RothC:
         """
         state, n_cycles, _ = self.spin_up(data)
         return self.run_forward(state, data, n_cycles)
-
-
-def main(input_path: Union[str, Path], output_dir: Union[str, Path]) -> None:
-    """Run the RothC carbon model.
-
-    Args:
-        input_path: Path to the input data file.
-        output_dir: Directory where output CSV files will be written.
-    """
-    import pandas as pd
-
-    input_path = Path(input_path)
-    output_dir = Path(output_dir)
-
-    df_head = pd.read_csv(
-        input_path,
-        skiprows=3,
-        header=0,
-        nrows=1,
-        index_col=None,
-        sep=r"\s+",
-    )
-    clay = df_head.loc[0, "clay"]
-    depth = df_head.loc[0, "depth"]
-    iom = float(df_head.loc[0, "iom"])
-
-    df = pd.read_csv(input_path, skiprows=6, header=0, index_col=None, sep=r"\s+")
-    df.columns = [
-        "t_year",
-        "t_month",
-        "t_mod",
-        "t_tmp",
-        "t_rain",
-        "t_evap",
-        "t_C_Inp",
-        "t_FYM_Inp",
-        "t_PC",
-        "t_DPM_RPM",
-    ]
-
-    data = {col: df[col].tolist() for col in df.columns}
-
-    model = RothC(clay=clay, depth=depth, iom=iom)
-    year_results, month_results = model(data)
-
-    output_years = pd.DataFrame(year_results)
-    output_months = pd.DataFrame(month_results)
-
-    output_years.to_csv(output_dir / "year_results.csv", index=False)
-    output_months.to_csv(output_dir / "month_results.csv", index=False)

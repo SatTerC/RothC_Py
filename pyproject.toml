@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-rothc = "rothc_py.main:main"
+rothc = "rothc_py.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.8.10,<0.9.0"]
