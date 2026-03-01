@@ -807,22 +807,27 @@ def spin_up_to_equilibrium(
     )
 
 
-def main(input_path: Path | str, output_dir: Path | str) -> None:
-    """Run the RothC carbon model.
+def run_simulation(
+    data: dict[str, list],
+    clay: float,
+    depth: float,
+    iom: float,
+    nsteps: int,
+) -> tuple[list[dict], list[dict]]:
+    """Run the RothC model simulation.
 
     Args:
-        input_path: Path to the input data file.
-        output_dir: Directory where output CSV files will be written.
+        data: Dictionary containing monthly climate and input data.
+        clay: Clay content of the soil (%).
+        depth: Depth of topsoil (cm).
+        iom: Inert Organic Matter (t C/ha).
+        nsteps: Number of timesteps in the input data.
+
+    Returns:
+        Tuple of (year_results, month_results), each a list of dicts.
     """
-    import pandas as pd
+    time_step = MONTHS_PER_YEAR
 
-    input_path = Path(input_path)
-    output_dir = Path(output_dir)
-
-    ######################################################################################################
-    # program RothC_Python
-
-    # set initial pool values
     dpm = 0.0
     rpm = 0.0
     bio = 0.0
@@ -835,41 +840,8 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
     hum_rc_age = 0.0
     iom_age = IOM_INITIAL_AGE
 
-    # set initial soil water content (deficit)
     swc = 0.0
-    toc1 = 0.0
 
-    # read in RothC input data file
-    df_head = pd.read_csv(
-        input_path,
-        skiprows=3,
-        header=0,
-        nrows=1,
-        index_col=None,
-        sep=r"\s+",
-    )
-    clay = df_head.loc[0, "clay"]
-    depth = df_head.loc[0, "depth"]
-    iom = float(df_head.loc[0, "iom"])
-    nsteps = df_head.loc[0, "nsteps"]
-    df = pd.read_csv(input_path, skiprows=6, header=0, index_col=None, sep=r"\s+")
-    print(df)
-    df.columns = [
-        "t_year",
-        "t_month",
-        "t_mod",
-        "t_tmp",
-        "t_rain",
-        "t_evap",
-        "t_C_Inp",
-        "t_FYM_Inp",
-        "t_PC",
-        "t_DPM_RPM",
-    ]
-
-    data = {col: df[col].tolist() for col in df.columns}
-
-    # spin up to equilibrium
     print(0, dpm, rpm, bio, hum, iom, soc)
 
     (
@@ -905,12 +877,10 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         depth,
     )
 
-    time_step = MONTHS_PER_YEAR
-
     total_delta = (math.exp(-total_rc_age / RADIO_MEAN_LIFETIME) - 1.0) * 1000.0
     print(j, dpm, rpm, bio, hum, iom, soc, total_delta)
 
-    year_list = [
+    year_results = [
         {
             "Year": 1,
             "Month": j + 1,
@@ -924,7 +894,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         }
     ]
 
-    month_list = []
+    month_results = []
 
     for i in range(time_step, nsteps):
         temp = data["t_tmp"][i]
@@ -998,7 +968,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             soc,
         )
 
-        month_list.append(
+        month_results.append(
             {
                 "Year": data["t_year"][i],
                 "Month": data["t_month"][i],
@@ -1013,7 +983,7 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
         )
 
         if data["t_month"][i] == time_step:
-            year_list.append(
+            year_results.append(
                 {
                     "Year": data["t_year"][i],
                     "Month": data["t_month"][i],
@@ -1028,8 +998,54 @@ def main(input_path: Path | str, output_dir: Path | str) -> None:
             )
             print(i, dpm, rpm, bio, hum, iom, soc, total_delta)
 
-    output_years = pd.DataFrame(year_list)
-    output_months = pd.DataFrame(month_list)
+    return year_results, month_results
+
+
+def main(input_path: Path | str, output_dir: Path | str) -> None:
+    """Run the RothC carbon model.
+
+    Args:
+        input_path: Path to the input data file.
+        output_dir: Directory where output CSV files will be written.
+    """
+    import pandas as pd
+
+    input_path = Path(input_path)
+    output_dir = Path(output_dir)
+
+    df_head = pd.read_csv(
+        input_path,
+        skiprows=3,
+        header=0,
+        nrows=1,
+        index_col=None,
+        sep=r"\s+",
+    )
+    clay = df_head.loc[0, "clay"]
+    depth = df_head.loc[0, "depth"]
+    iom = float(df_head.loc[0, "iom"])
+    nsteps = df_head.loc[0, "nsteps"]
+    df = pd.read_csv(input_path, skiprows=6, header=0, index_col=None, sep=r"\s+")
+    print(df)
+    df.columns = [
+        "t_year",
+        "t_month",
+        "t_mod",
+        "t_tmp",
+        "t_rain",
+        "t_evap",
+        "t_C_Inp",
+        "t_FYM_Inp",
+        "t_PC",
+        "t_DPM_RPM",
+    ]
+
+    data = {col: df[col].tolist() for col in df.columns}
+
+    year_results, month_results = run_simulation(data, clay, depth, iom, nsteps)
+
+    output_years = pd.DataFrame(year_results)
+    output_months = pd.DataFrame(month_results)
 
     output_years.to_csv(output_dir / "year_results.csv", index=False)
     output_months.to_csv(output_dir / "month_results.csv", index=False)
