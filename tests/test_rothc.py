@@ -96,6 +96,27 @@ def test_final_year_values(rothc_params, rothc_data):
     assert final_row["deltaC"] == pytest.approx(-1.6364720117949538, abs=1e-10)
 
 
+def test_spin_up_output(rothc_params, rothc_data):
+    spinup_data, _ = rothc_data
+    model = RothC(**rothc_params)
+    state, n_cycles = model.spin_up(spinup_data)
+
+    assert n_cycles == 19871
+    assert state.dpm == pytest.approx(0.14546618698414293, abs=1e-10)
+    assert state.rpm == pytest.approx(5.678120858752452, abs=1e-10)
+    assert state.bio == pytest.approx(0.7405937979752077, abs=1e-10)
+    assert state.hum == pytest.approx(27.642769420831222, abs=1e-10)
+    assert state.iom == pytest.approx(3.0041, abs=1e-10)
+    assert state.soc == pytest.approx(37.211050264543026, abs=1e-10)
+    assert state.dpm_rc_age == pytest.approx(0.348556574230139, abs=1e-10)
+    assert state.rpm_rc_age == pytest.approx(7.776466544039556, abs=1e-10)
+    assert state.bio_rc_age == pytest.approx(22.431439734397333, abs=1e-10)
+    assert state.hum_rc_age == pytest.approx(137.3962355231855, abs=1e-10)
+    assert state.iom_age == pytest.approx(50000.0, abs=1e-10)
+    assert state.total_rc_age == pytest.approx(787.4192951123349, abs=1e-10)
+    assert state.swc == pytest.approx(0.0, abs=1e-10)
+
+
 def test_timing(rothc_params, rothc_data):
     spinup_data, forward_data = rothc_data
     start = time.perf_counter()
