@@ -4,21 +4,28 @@
 
 This repository is a fork of https://github.com/Rothamsted-Models/RothC_Py `v1.0.0`, provides a **heavily** refactored and packaged version of 
 
+## Comparison with [Rothamsted-Models/RothC_Py](https://github.com/Rothamsted-Models/RothC_Py)
+
 The main changes with respect to the original are
 
-- Properly packaged and hence installable via `pip` or `uv`.
-- Faster (~20x).
-- Dependency-free.
-- More concise, clear and documented code.
-- Stylistic improvements.
+- Properly packaged and hence installable via `pip` or `uv`
+- Faster (~20x)
+- Dependency-free
+- More concise, clear and documented code
+- Stylistic improvements
 
 There are a couple of tests in `tests/test_rothc.py` to check for consistency with the original implementation, which can be run using `pytest` from the root of the repository.
 
-If you really care about what's changed it's all in the PR #1.
+If you care about the details of what's changed it's all in the PR #1.
 
----
+The following files have been preserved from the original repo:
 
-## 🔬 Scientific Background
+- FUNDING.md
+- LICENSE
+- README_v1.md 
+- RothC_description.pdf
+
+## Scientific Background
 
 The RothC model splits soil organic carbon (SOC) into five distinct compartments, four active and one inert. The model accounts for soil type (clay content), temperature, moisture, and plant cover to calculate the decay rates of these pools.
 
@@ -38,18 +45,15 @@ $$C_i(t) = C_{i,0} e^{-k_i \rho t}$$
 
 where $k$ is the decomposition constant and $\rho$ represents the combined rate-modifying factors.
 
----
 
-## 📖 Documentation
+## Documentation
 
-This is a to do.
+This is a to do :)
 
-
----
 
 ## Developer Instructions
 
-This project uses **[uv](https://docs.astral.sh/uv/)** for lightning-fast dependency management and packaging.
+This project uses **[uv](https://docs.astral.sh/uv/)** for dependency management and packaging.
 
 ### Prerequisites
 
@@ -86,12 +90,19 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv run pytest
 ```
 
+5. **After making changes, run `ruff`**
+
+```bash
+ruff format
+ruff check
+```
+
 ## Contributing
 
 At this point I'm not sure whether this fork will ever rejoin Rothamsted-Model/RothC_Py, so I'm not sure whether it makes sense to contribute to this repository or that one.
 In case there is interest in contributing maybe just reach out to the author (see the noreply address in pyproject.toml).
 
-## 📚 References
+## References
 
 * **Bolinder MA, et al. (2007).** An approach for estimating net primary productivity and annual carbon inputs to soil for common agricultural crops in Canada. *Agriculture, Ecosystems & Environment*, 118: 29-42.
 * **Farina R, et al. (2013).** Modification of the RothC model for simulations of soil organic C dynamics in dryland regions. *Geoderma*, 200: 18-30.
