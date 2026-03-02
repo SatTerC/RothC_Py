@@ -660,7 +660,7 @@ class RothC:
 
         return new_state
 
-    def spin_up(self, data: RothCInputData) -> CarbonState:
+    def spin_up(self, data: RothCInputData) -> tuple[CarbonState, int]:
         """Spin up the RothC model to equilibrium.
 
         This method iteratively applies the same climate/input data until the
@@ -720,6 +720,7 @@ class RothC:
                 )
 
             toc_after_cycle = state.dpm + state.rpm + state.bio + state.hum
+            n_cycles += 1
 
             if abs(toc_after_cycle - toc_before_cycle) < EQUILIBRIUM_THRESHOLD:
                 logging.info(
@@ -727,9 +728,7 @@ class RothC:
                 )
                 break
 
-            n_cycles += 1
-
-        return state
+        return state, n_cycles
 
     def forward(
         self, state: CarbonState, data: RothCInputData
@@ -835,5 +834,5 @@ class RothC:
         Returns:
             Tuple of (year_results, month_results), each a list of dicts.
         """
-        state = self.spin_up(spinup_data)
+        state, _ = self.spin_up(spinup_data)
         return self.forward(state, data)
