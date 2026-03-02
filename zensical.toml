@@ -4,7 +4,7 @@ site_description = "An implementation of the Rothamsted Carbon Model (RothC) in 
 site_author = "Joe Marsh Rossney"
 
 site_url = "https://satterc.github.io/rothc_py"
-use_directory_urls = false
+use_directory_urls = false  # TODO: set to true once stable?
 copyright = "Copyright &copy; 2026 The authors"
 
 # Katex

@@ -27,7 +27,7 @@ The following files have been preserved from the original repo:
 
 ## Documentation
 
-The documentation (WIP) is hosted at [satterc.github.io/rothc_py](https://satterc.github.io/rothc_py). 
+The documentation (WIP) is hosted at [satterc.github.io/rothc_py](https://satterc.github.io/RothC_Py/index.html).
 
 ## Scientific Background
 
