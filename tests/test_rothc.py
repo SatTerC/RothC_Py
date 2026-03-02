@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from rothc_py import RothC
+from rothc_py.main import CarbonState
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -57,52 +58,42 @@ def rothc_data(input_file) -> tuple[dict, dict]:
 
 
 @pytest.fixture
-def expected_years():
-    return pd.read_csv(FIXTURE_DIR / "year_results.csv")
-
-
-@pytest.fixture
-def expected_months():
+def expected_results():
     return pd.read_csv(FIXTURE_DIR / "month_results.csv")
 
 
-def test_output_matches_expected(
-    rothc_params, rothc_data, expected_years, expected_months
-):
+@pytest.fixture
+def expected_spun_up_state():
+    return CarbonState(
+        dpm=0.14546618698414293,
+        rpm=5.678120858752452,
+        bio=0.7405937979752077,
+        hum=27.642769420831222,
+        iom=3.0041,
+        soc=37.211050264543026,
+        dpm_rc_age=0.348556574230139,
+        rpm_rc_age=7.776466544039556,
+        bio_rc_age=22.431439734397333,
+        hum_rc_age=137.3962355231855,
+        iom_age=50000.0,
+        total_rc_age=787.4192951123349,
+        swc=0.0,
+    )
+
+
+def test_output_matches_expected(rothc_params, rothc_data, expected_results):
     spinup_data, forward_data = rothc_data
     model = RothC(**rothc_params)
-    state, n_cycles = model.spin_up(spinup_data)
-    year_results, month_results = model.forward(state, forward_data)
+    _, actual_results = model(spinup_data, forward_data)
 
-    # NOTE: this is another weird thing where the original output data has the number of spin-up iterations
-    # as the "month" value corresponding to year 1, i.e. the spinup year.
-    year_results[0]["Month"] = n_cycles * 12
+    actual_results = pd.DataFrame(actual_results)
 
-    actual_years = pd.DataFrame(year_results)
-    actual_months = pd.DataFrame(month_results)
-
-    np.testing.assert_allclose(actual_years.values, expected_years.values, rtol=1e-10)
-    np.testing.assert_allclose(actual_months.values, expected_months.values, rtol=1e-10)
+    np.testing.assert_allclose(
+        actual_results.values, expected_results.values, rtol=1e-10
+    )
 
 
-def test_final_year_values(rothc_params, rothc_data):
-    spinup_data, forward_data = rothc_data
-    year_results, _ = RothC(**rothc_params)(forward_data, spinup_data)
-    actual_years = pd.DataFrame(year_results)
-    final_row = actual_years.iloc[-1]
-
-    assert final_row["Year"] == 2007
-    assert final_row["Month"] == 12
-    assert final_row["DPM_t_C_ha"] == pytest.approx(0.1858764195450398, abs=1e-10)
-    assert final_row["RPM_t_C_ha"] == pytest.approx(6.370323733617322, abs=1e-10)
-    assert final_row["BIO_t_C_ha"] == pytest.approx(0.8285615862243552, abs=1e-10)
-    assert final_row["HUM_t_C_ha"] == pytest.approx(27.802662060467732, abs=1e-10)
-    assert final_row["IOM_t_C_ha"] == pytest.approx(3.0041, abs=1e-10)
-    assert final_row["SOC_t_C_ha"] == pytest.approx(38.19152379985445, abs=1e-10)
-    assert final_row["deltaC"] == pytest.approx(-1.6364720117949538, abs=1e-10)
-
-
-def test_spin_up_output(rothc_params, rothc_data):
+def test_spin_up_matches_expected(rothc_params, rothc_data, expected_spun_up_state):
     spinup_data, _ = rothc_data
     model = RothC(**rothc_params)
     state, n_cycles = model.spin_up(spinup_data)
@@ -113,19 +104,7 @@ def test_spin_up_output(rothc_params, rothc_data):
     # n_cycles from the original code.
     assert n_cycles * 12 - 1 == 19871
 
-    assert state.dpm == pytest.approx(0.14546618698414293, abs=1e-10)
-    assert state.rpm == pytest.approx(5.678120858752452, abs=1e-10)
-    assert state.bio == pytest.approx(0.7405937979752077, abs=1e-10)
-    assert state.hum == pytest.approx(27.642769420831222, abs=1e-10)
-    assert state.iom == pytest.approx(3.0041, abs=1e-10)
-    assert state.soc == pytest.approx(37.211050264543026, abs=1e-10)
-    assert state.dpm_rc_age == pytest.approx(0.348556574230139, abs=1e-10)
-    assert state.rpm_rc_age == pytest.approx(7.776466544039556, abs=1e-10)
-    assert state.bio_rc_age == pytest.approx(22.431439734397333, abs=1e-10)
-    assert state.hum_rc_age == pytest.approx(137.3962355231855, abs=1e-10)
-    assert state.iom_age == pytest.approx(50000.0, abs=1e-10)
-    assert state.total_rc_age == pytest.approx(787.4192951123349, abs=1e-10)
-    assert state.swc == pytest.approx(0.0, abs=1e-10)
+    assert state == expected_spun_up_state
 
 
 def test_timing(rothc_params, rothc_data):

@@ -57,7 +57,7 @@ at commit bd90ce3cf616d5316042b73a3b1f09c5b6e3b361 (Mar 12, 2025).
 """
 
 from dataclasses import dataclass
-from math import exp, log
+from math import exp, log, isclose
 from typing import Self, TypedDict
 import logging
 
@@ -240,7 +240,7 @@ class RothCInputData(TypedDict):
 # =============================================================================
 
 
-@dataclass
+@dataclass(eq=False)
 class CarbonState:
     """Soil carbon pool state for the RothC model.
 
@@ -297,6 +297,37 @@ class CarbonState:
             iom_age=IOM_INITIAL_AGE,
             total_rc_age=0.0,
             swc=0.0,
+        )
+
+    def __eq__(
+        self, other: object, rel_tol: float = 1e-10, abs_tol: float = 1e-10
+    ) -> bool:
+        if not isinstance(other, CarbonState):
+            return False
+
+        return all(
+            [
+                isclose(
+                    getattr(self, attr),
+                    getattr(other, attr),
+                    rel_tol=rel_tol,
+                    abs_tol=abs_tol,
+                )
+                for attr in [
+                    "dpm",
+                    "rpm",
+                    "bio",
+                    "iom",
+                    "soc",
+                    "dpm_rc_age",
+                    "rpm_rc_age",
+                    "bio_rc_age",
+                    "hum_rc_age",
+                    "iom_age",
+                    "total_rc_age",
+                    "swc",
+                ]
+            ]
         )
 
 
@@ -732,107 +763,98 @@ class RothC:
 
     def forward(
         self, state: CarbonState, data: RothCInputData
-    ) -> tuple[list[dict], list[dict]]:
+    ) -> tuple[CarbonState, dict[str, list]]:
         """Run the forward simulation from an initial state.
 
         Args:
             state: Initial carbon state (typically from spin_up).
             data: Dictionary containing monthly climate and input data.
-            n_cycles: Number of spin-up cycles (used for first year Month value).
 
         Returns:
-            Tuple of (year_results, month_results), each a list of dicts.
+            Tuple of (final carbon state, dict of monthly results where each key maps to a list of values).
         """
-        nsteps = len(data["t_tmp"])
 
-        year_results = [
-            {
-                "Year": 1,
-                "Month": None,  # TODO: get rid of this shit. This should be n_cycles * 12 but like ugh, why
-                "DPM_t_C_ha": state.dpm,
-                "RPM_t_C_ha": state.rpm,
-                "BIO_t_C_ha": state.bio,
-                "HUM_t_C_ha": state.hum,
-                "IOM_t_C_ha": state.iom,
-                "SOC_t_C_ha": state.soc,
-                "deltaC": (exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0)
-                * 1000.0,
-            }
-        ]
+        def data_iterator():
+            return zip(
+                data["t_tmp"],
+                data["t_rain"],
+                data["t_evap"],
+                data["t_PC"],
+                data["t_DPM_RPM"],
+                data["t_C_Inp"],
+                data["t_FYM_Inp"],
+                data["t_mod"],
+            )
 
-        month_results = []
+        (
+            dpm_monthly,
+            rpm_monthly,
+            bio_monthly,
+            hum_monthly,
+            iom_monthly,
+            soc_monthly,
+            delta_monthly,
+        ) = [], [], [], [], [], [], []
 
-        for i in range(nsteps):
-            temp = data["t_tmp"][i]
-            rain = data["t_rain"][i]
-            pevap = data["t_evap"][i]
-
-            pc = bool(data["t_PC"][i])
-            dpm_rpm = data["t_DPM_RPM"][i]
-
-            c_inp = data["t_C_Inp"][i]
-            fym_inp = data["t_FYM_Inp"][i]
-
-            modern_c = data["t_mod"][i] / 100.0
-
+        for (
+            temp,
+            rain,
+            evap,
+            pc,
+            dpm_rpm,
+            c_inp,
+            fym_inp,
+            modern_c,
+        ) in data_iterator():
             state = self.run_timestep(
                 state,
                 temp,
                 rain,
-                pevap,
+                evap,
                 pc,
                 dpm_rpm,
                 c_inp,
                 fym_inp,
-                modern_c,
+                modern_c / 100.0,
             )
+
+            dpm_monthly.append(state.dpm)
+            rpm_monthly.append(state.rpm)
+            bio_monthly.append(state.bio)
+            hum_monthly.append(state.hum)
+            iom_monthly.append(state.iom)
+            soc_monthly.append(state.soc)
 
             total_delta = (
                 exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0
             ) * 1000.0
+            delta_monthly.append(total_delta)
 
-            month_results.append(
-                {
-                    "Year": data["t_year"][i],
-                    "Month": data["t_month"][i],
-                    "DPM_t_C_ha": state.dpm,
-                    "RPM_t_C_ha": state.rpm,
-                    "BIO_t_C_ha": state.bio,
-                    "HUM_t_C_ha": state.hum,
-                    "IOM_t_C_ha": state.iom,
-                    "SOC_t_C_ha": state.soc,
-                    "deltaC": total_delta,
-                }
-            )
+        results = dict(
+            Year=data["t_year"],
+            Month=data["t_month"],
+            DPM_t_C_ha=dpm_monthly,
+            RPM_t_C_ha=rpm_monthly,
+            BIO_t_C_ha=bio_monthly,
+            HUM_t_C_ha=hum_monthly,
+            IOM_t_C_ha=iom_monthly,
+            SOC_t_C_ha=soc_monthly,
+            deltaC=delta_monthly,
+        )
 
-            if data["t_month"][i] == MONTHS_PER_YEAR:
-                year_results.append(
-                    {
-                        "Year": data["t_year"][i],
-                        "Month": data["t_month"][i],
-                        "DPM_t_C_ha": state.dpm,
-                        "RPM_t_C_ha": state.rpm,
-                        "BIO_t_C_ha": state.bio,
-                        "HUM_t_C_ha": state.hum,
-                        "IOM_t_C_ha": state.iom,
-                        "SOC_t_C_ha": state.soc,
-                        "deltaC": total_delta,
-                    }
-                )
-
-        return year_results, month_results
+        return state, results
 
     def __call__(
-        self, data: RothCInputData, spinup_data: RothCInputData
-    ) -> tuple[list[dict], list[dict]]:
+        self, spinup_data: RothCInputData, forward_data: RothCInputData
+    ) -> tuple[CarbonState, dict[str, list]]:
         """Run the full RothC simulation (spin-up + forward).
 
         Args:
-            data: Dictionary containing monthly climate and input data for forward run.
             spinup_data: Dictionary containing monthly climate and input data for spin-up.
+            forward_data: Dictionary containing monthly climate and input data for forward run.
 
         Returns:
-            Tuple of (year_results, month_results), each a list of dicts.
+            Tuple of (final carbon state, dict of monthly results where each key maps to a list of values).
         """
         state, _ = self.spin_up(spinup_data)
-        return self.forward(state, data)
+        return self.forward(state, forward_data)
