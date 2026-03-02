@@ -338,16 +338,14 @@ class RothC:
     """Rothamsted Carbon Model.
 
     A class-based implementation of the RothC soil carbon model.
+
+    Parameters:
+        clay: Clay content of the soil (%).
+        depth: Depth of topsoil (cm).
+        iom: Inert organic matter (t C/ha).
     """
 
-    def __init__(self, clay: float, depth: float, iom: float):
-        """Initialize the RothC model with soil parameters.
-
-        Args:
-            clay: Clay content of the soil (%).
-            depth: Depth of topsoil (cm).
-            iom: Inert organic matter (t C/ha).
-        """
+    def __init__(self, clay: float, depth: float, iom: float) -> None:
         self.clay = clay
         self.depth = depth
         self.iom = iom

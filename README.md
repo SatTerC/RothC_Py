@@ -83,23 +83,52 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
 
-4. **Run the tests:**
+### Pre-commit actions
+
+1. **Run the tests:**
 
 ```bash
 uv run pytest
 ```
 
-5. **After making changes, run `ruff`**
+2. **After making changes, run `ruff`:**
 
 ```bash
 ruff format
 ruff check
 ```
 
+### Building the docs
+
+Build the docs with 
+
+```bash
+zensical build
+```
+
+Next, open `site/index.html` in your browser.
+
+See [zensical.org](https://zensical.org/) for more details.
+
+
+### Useful short-cuts
+
+The awesome [`just`](https://github.com/casey/just) is a development dependency that will be installed when you run `uv sync`.
+
+You can run the following commands anywhere in the repository:
+
+```bash
+just test  # run the tests (pytest)
+just time  # time RothC on the example data
+just lint  # run the formatter and linter (ruff)
+just docs  # build the docs (zensical)
+```
+
 ## Contributing
 
 At this point I'm not sure whether this fork will ever rejoin Rothamsted-Model/RothC_Py, so I'm not sure whether it makes sense to contribute to this repository or that one.
 In case there is interest in contributing maybe just reach out to the author (see the noreply address in pyproject.toml).
+
 
 ## References
 
