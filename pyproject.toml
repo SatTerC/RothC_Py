@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "rothc-py"
-version = "1.1.0"
+version = "1.9.0"
 description = "Rothamsted soil carbon model (RothC) in Python"
 readme = "README.md"
 license = { text = "Apache-2.0" }
