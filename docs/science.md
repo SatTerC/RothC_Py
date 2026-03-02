@@ -7,8 +7,6 @@ icon: lucide/microscope
 
 The RothC model splits soil organic carbon (SOC) into five distinct compartments, four active and one inert. The model accounts for soil type (clay content), temperature, moisture, and plant cover to calculate the decay rates of these pools.
 
-## Carbon Pools:
-
 * **DPM**: Decomposable Plant Material
 * **RPM**: Resistant Plant Material
 * **BIO**: Microbial Biomass
@@ -25,6 +23,10 @@ $$
 
 where $k$ is the decomposition constant and $\rho$ represents the combined rate-modifying factors.
 
+
+## More detail
+
+See the model description paper by the original code authors (Coleman, Prout and Milne, Rothamsted Research): [github.com/Rothamsted-Models/RothC_Py/RothC_description.pdf](https://github.com/Rothamsted-Models/RothC_Py/blob/main/RothC_description.pdf).
 
 ## References
 
