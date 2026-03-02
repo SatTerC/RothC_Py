@@ -4,9 +4,16 @@ build-backend = "uv_build"
 
 [project]
 name = "rothc-py"
-version = "0.1.0"
+version = "1.1.0"
 description = "Rothamsted soil carbon model (RothC) in Python"
 readme = "README.md"
+license = { text = "Apache-2.0" }
+keywords = ["soil", "carbon", "rothc", "modelling", "soil-carbon", "ecosystem"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
 authors = [
     { name = "jmarshrossney", email = "17361029+jmarshrossney@users.noreply.github.com" }
 ]
