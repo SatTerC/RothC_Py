@@ -676,59 +676,62 @@ class RothC:
         state = CarbonState.zero()
         state.iom = self.iom
 
-        toc_prev = 0.0
-        n_cycles = -1
-        k = -1
+        months_per_cycle = len(data["t_tmp"])
+        if months_per_cycle % 12 != 0:
+            raise ValueError("Spin-up data should be a multiple of 12 months.")
 
+        def data_iterator():
+            return zip(
+                data["t_tmp"],
+                data["t_rain"],
+                data["t_evap"],
+                data["t_PC"],
+                data["t_DPM_RPM"],
+                data["t_C_Inp"],
+                data["t_FYM_Inp"],
+                data["t_mod"],
+            )
+
+        n_cycles = 0
         while True:
-            k = k + 1
-            n_cycles = n_cycles + 1
+            toc_before_cycle = state.dpm + state.rpm + state.bio + state.hum
 
-            if k == MONTHS_PER_YEAR:
-                k = 0
-
-            temp = data["t_tmp"][k]
-            rain = data["t_rain"][k]
-            pevap = data["t_evap"][k]
-
-            pc = bool(data["t_PC"][k])
-            dpm_rpm = data["t_DPM_RPM"][k]
-
-            c_inp = data["t_C_Inp"][k]
-            fym_inp = data["t_FYM_Inp"][k]
-
-            modern_c = data["t_mod"][k] / 100.0
-
-            state = self.run_timestep(
-                state,
+            # Cycle through entire series of spin-up driving data
+            for (
                 temp,
                 rain,
-                pevap,
+                evap,
                 pc,
                 dpm_rpm,
                 c_inp,
                 fym_inp,
                 modern_c,
-            )
+            ) in data_iterator():
+                state = self.run_timestep(
+                    state,
+                    temp,
+                    rain,
+                    evap,
+                    pc,
+                    dpm_rpm,
+                    c_inp,
+                    fym_inp,
+                    modern_c / 100.0,
+                )
 
-            if (k + 1) % MONTHS_PER_YEAR == 0:
-                toc_curr = state.dpm + state.rpm + state.bio + state.hum
+            toc_after_cycle = state.dpm + state.rpm + state.bio + state.hum
+            n_cycles += 1
 
-                if (
-                    n_cycles > MONTHS_PER_YEAR
-                    and abs(toc_curr - toc_prev) < EQUILIBRIUM_THRESHOLD
-                ):
-                    logging.info(
-                        f"Spin-up converged after {n_cycles // MONTHS_PER_YEAR} cycles ({n_cycles} iterations)"
-                    )
-                    break
-
-                toc_prev = toc_curr
+            if abs(toc_after_cycle - toc_before_cycle) < EQUILIBRIUM_THRESHOLD:
+                logging.info(
+                    f"Spin-up converged after {n_cycles} cycles ({n_cycles * months_per_cycle} iterations)"
+                )
+                break
 
         return state, n_cycles
 
-    def run_forward(
-        self, state: CarbonState, data: RothCInputData, n_cycles: int
+    def forward(
+        self, state: CarbonState, data: RothCInputData
     ) -> tuple[list[dict], list[dict]]:
         """Run the forward simulation from an initial state.
 
@@ -745,7 +748,7 @@ class RothC:
         year_results = [
             {
                 "Year": 1,
-                "Month": n_cycles + 1,
+                "Month": None,  # TODO: get rid of this shit. This should be n_cycles * 12 but like ugh, why
                 "DPM_t_C_ha": state.dpm,
                 "RPM_t_C_ha": state.rpm,
                 "BIO_t_C_ha": state.bio,
@@ -831,5 +834,5 @@ class RothC:
         Returns:
             Tuple of (year_results, month_results), each a list of dicts.
         """
-        state, n_cycles = self.spin_up(spinup_data)
-        return self.run_forward(state, data, n_cycles)
+        state, _ = self.spin_up(spinup_data)
+        return self.forward(state, data)

@@ -70,7 +70,13 @@ def test_output_matches_expected(
     rothc_params, rothc_data, expected_years, expected_months
 ):
     spinup_data, forward_data = rothc_data
-    year_results, month_results = RothC(**rothc_params)(forward_data, spinup_data)
+    model = RothC(**rothc_params)
+    state, n_cycles = model.spin_up(spinup_data)
+    year_results, month_results = model.forward(state, forward_data)
+
+    # NOTE: this is another weird thing where the original output data has the number of spin-up iterations
+    # as the "month" value corresponding to year 1, i.e. the spinup year.
+    year_results[0]["Month"] = n_cycles * 12
 
     actual_years = pd.DataFrame(year_results)
     actual_months = pd.DataFrame(month_results)
@@ -101,7 +107,12 @@ def test_spin_up_output(rothc_params, rothc_data):
     model = RothC(**rothc_params)
     state, n_cycles = model.spin_up(spinup_data)
 
-    assert n_cycles == 19871
+    # NOTE: original counted n_cycles in a very strange way: one iter == one cycle, but cycles
+    # were initialised at -1 for no apparent reason. Now, we count one pass through the spin-up
+    # data as one cycle, which is 12 months. Hence, n_cycles * 12 - 1 must equal the value for
+    # n_cycles from the original code.
+    assert n_cycles * 12 - 1 == 19871
+
     assert state.dpm == pytest.approx(0.14546618698414293, abs=1e-10)
     assert state.rpm == pytest.approx(5.678120858752452, abs=1e-10)
     assert state.bio == pytest.approx(0.7405937979752077, abs=1e-10)
