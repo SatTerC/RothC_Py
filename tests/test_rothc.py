@@ -33,7 +33,7 @@ def rothc_params(input_file):
 
 
 @pytest.fixture
-def rothc_data(input_file):
+def rothc_data(input_file) -> tuple[dict, dict]:
     df = pd.read_csv(input_file, skiprows=6, header=0, index_col=None, sep=r"\s+")
     df.columns = [
         "t_year",
@@ -47,7 +47,13 @@ def rothc_data(input_file):
         "t_PC",
         "t_DPM_RPM",
     ]
-    return {col: df[col].tolist() for col in df.columns}
+    data = {col: df[col].tolist() for col in df.columns}
+
+    # Split: first 12 months for spin-up, rest for forward
+    spinup_data = {k: v[:12] for k, v in data.items()}
+    forward_data = {k: v[12:] for k, v in data.items()}
+
+    return spinup_data, forward_data
 
 
 @pytest.fixture
@@ -63,7 +69,8 @@ def expected_months():
 def test_output_matches_expected(
     rothc_params, rothc_data, expected_years, expected_months
 ):
-    year_results, month_results = RothC(**rothc_params)(rothc_data)
+    spinup_data, forward_data = rothc_data
+    year_results, month_results = RothC(**rothc_params)(forward_data, spinup_data)
 
     actual_years = pd.DataFrame(year_results)
     actual_months = pd.DataFrame(month_results)
@@ -73,7 +80,8 @@ def test_output_matches_expected(
 
 
 def test_final_year_values(rothc_params, rothc_data):
-    year_results, _ = RothC(**rothc_params)(rothc_data)
+    spinup_data, forward_data = rothc_data
+    year_results, _ = RothC(**rothc_params)(forward_data, spinup_data)
     actual_years = pd.DataFrame(year_results)
     final_row = actual_years.iloc[-1]
 
@@ -89,8 +97,9 @@ def test_final_year_values(rothc_params, rothc_data):
 
 
 def test_timing(rothc_params, rothc_data):
+    spinup_data, forward_data = rothc_data
     start = time.perf_counter()
-    RothC(**rothc_params)(rothc_data)
+    RothC(**rothc_params)(forward_data, spinup_data)
     end = time.perf_counter()
 
     elapsed = end - start
