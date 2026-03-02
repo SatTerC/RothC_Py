@@ -716,7 +716,7 @@ class RothC:
                     dpm_rpm,
                     c_inp,
                     fym_inp,
-                    modern_c,
+                    modern_c / 100.0,
                 )
 
             toc_after_cycle = state.dpm + state.rpm + state.bio + state.hum
