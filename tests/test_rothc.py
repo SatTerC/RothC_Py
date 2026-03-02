@@ -4,8 +4,7 @@ import pytest
 import time
 from pathlib import Path
 
-from rothc_py import RothC
-from rothc_py.main import CarbonState
+from rothc_py import CarbonState, RothC
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -84,7 +83,7 @@ def expected_spun_up_state():
 def test_output_matches_expected(rothc_params, rothc_data, expected_results):
     spinup_data, forward_data = rothc_data
     model = RothC(**rothc_params)
-    _, actual_results = model(spinup_data, forward_data)
+    _, actual_results = model(forward_data, spinup_data)
 
     actual_results = pd.DataFrame(actual_results)
 

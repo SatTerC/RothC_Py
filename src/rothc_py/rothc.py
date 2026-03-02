@@ -1,334 +1,48 @@
-"""
-Rothamsted Carbon Model (RothC) implemented in Python.
+"""RothC model implementation.
 
-What follows is the original description from https://github.com/Rothamsted-Models/RothC_Py/RothC_Py.py,
-at commit bd90ce3cf616d5316042b73a3b1f09c5b6e3b361 (Mar 12, 2025).
-
-######################################################################################################################
-#
-#  RothC python version
-#
-#  This python version was translated from the Fortran code by Alice Milne, Jonah Prout and Kevin Coleman 29/02/2024
-#
-#  The Rothamsted Carbon Model: RothC
-#  Developed by David Jenkinson and Kevin Coleman
-#
-#  INPUTS:
-#
-#  clay:  clay content of the soil (units: %)
-#  depth: depth of topsoil (units: cm)
-#  IOM: inert organic matter (t C /ha)
-#  nsteps: number of timesteps
-#
-#  year:    year
-#  month:   month (1-12)
-#  modern:   %modern
-#  TMP:      Air temperature (C)
-#  Rain:     Rainfall (mm)
-#  Evap:     open pan evaporation (mm)
-#  C_inp:    carbon input to the soil each month (units: t C /ha)
-#  FYM:      Farmyard manure input to the soil each month (units: t C /ha)
-#  PC:       Plant cover (0 = no cover, 1 = covered by a crop)
-#  DPM/RPM:  Ratio of DPM to RPM for carbon additions to the soil (units: none)
-#
-#  OUTPUTS:
-#
-#  All pools are carbon and not organic matter
-#
-#  DPM:   Decomposable Plant Material (units: t C /ha)
-#  RPM:   Resistant Plant Material    (units: t C /ha)
-#  Bio:   Microbial Biomass           (units: t C /ha)
-#  Hum:   Humified Organic Matter     (units: t C /ha)
-#  IOM:   Inert Organic Matter        (units: t C /ha)
-#  SOC:   Soil Organic Matter / Total organic Matter (units: t C / ha)
-#
-#  DPM_Rage:   radiocarbon age of DPM
-#  RPM_Rage:   radiocarbon age of RPM
-#  Bio_Rage:   radiocarbon age of Bio
-#  HUM_Rage:   radiocarbon age of Hum
-#  Total_Rage: radiocarbon age of SOC (/ TOC)
-#
-#  SWC:       soil moisture deficit (mm per soil depth)
-#  RM_TMP:    rate modifying fator for temperature (0.0 - ~5.0)
-#  RM_Moist:  rate modifying fator for moisture (0.0 - 1.0)
-#  RM_PC:     rate modifying fator for plant retainment (0.6 or 1.0)
-
-######################################################################################################################
+This module provides the core implementation of the Rothamsted Carbon Model (RothC),
+including the rate modifier functions, decomposition logic, and the main RothC class.
 """
 
-from dataclasses import dataclass
-from math import exp, log, isclose
-from typing import Self, TypedDict
+from math import exp, log
 import logging
 
-
-# =============================================================================
-# Radiocarbon Constants
-# =============================================================================
-
-RADIO_HALFLIFE = 5568.0
-"""Conventional half-life of radiocarbon-14 (years)."""
-
-RADIO_MEAN_LIFETIME = 8035.0
-"""Mean lifetime of radiocarbon-14, used in δ14C calculations (years)."""
-
-IOM_INITIAL_AGE = 50000.0
-"""Default initial age of inert organic matter, implying negligible 14C (years)."""
-
-
-# =============================================================================
-# Decomposition Rate Constants
-# =============================================================================
-
-ZERO_THRESHOLD = 1e-8
-"""Minimum value threshold for numerical stability in radiocarbon age calculations."""
-
-DPM_RATE = 10.0
-"""Decomposition rate constant for Decomposable Plant Material (yr⁻¹)."""
-
-RPM_RATE = 0.3
-"""Decomposition rate constant for Resistant Plant Material (yr⁻¹)."""
-
-BIO_RATE = 0.66
-"""Decomposition rate constant for Microbial Biomass (yr⁻¹)."""
-
-HUM_RATE = 0.02
-"""Decomposition rate constant for Humified Organic Matter (yr⁻¹)."""
-
-
-# =============================================================================
-# Carbon Flow Fractions
-# =============================================================================
-
-CLAW_A = 1.67
-"""Scaling factor in the clay-dependent CO2/(BIO+HUM) partitioning equation."""
-
-CLAW_B = 1.85
-"""Coefficient in the clay-dependent CO2/(BIO+HUM) partitioning equation."""
-
-CLAW_C = 1.60
-"""Coefficient in the clay-dependent CO2/(BIO+HUM) partitioning equation."""
-
-CLAW_D = 0.0786
-"""Exponential decay coefficient in the clay-dependent partitioning equation."""
-
-FRAC_TO_BIO = 0.46
-"""Fraction of (BIO+HUM) that becomes Microbial Biomass."""
-
-FRAC_TO_HUM = 0.54
-"""Fraction of (BIO+HUM) that becomes Humified Organic Matter."""
-
-FYM_FRAC_DPM = 0.49
-"""Fraction of farmyard manure carbon that enters DPM pool."""
-
-FYM_FRAC_RPM = 0.49
-"""Fraction of farmyard manure carbon that enters RPM pool."""
-
-FYM_FRAC_HUM = 0.02
-"""Fraction of farmyard manure carbon that enters HUM pool."""
-
-
-# =============================================================================
-# Moisture Rate Modifier Constants
-# =============================================================================
-
-RMF_MOIST_MAX = 1.0
-"""Maximum rate modifying factor for moisture (no water stress)."""
-
-RMF_MOIST_MIN = 0.2
-"""Minimum rate modifying factor for moisture (maximum water stress)."""
-
-SMD_COEFF_A = 20.0
-"""Coefficient A in the maximum soil moisture deficit equation."""
-
-SMD_COEFF_B = 1.3
-"""Coefficient B in the maximum soil moisture deficit equation."""
-
-SMD_COEFF_C = 0.01
-"""Coefficient C in the maximum soil moisture deficit equation."""
-
-SMD_DEPTH_DIVISOR = 23.0
-"""Reference soil depth for scaling maximum soil moisture deficit (cm)."""
-
-SMD_1BAR_FRAC = 0.444
-"""Fraction of maximum TSMD at which rate modifier equals 1.0."""
-
-SMD_BARE_FRAC = 0.556
-"""Inverse of bare soil divisor (1/1.8) for reduced evaporation from bare soil."""
-
-EVAP_FACTOR = 0.75
-"""Factor to convert open-pan evaporation to evapotranspiration."""
-
-
-# =============================================================================
-# Temperature Rate Modifier Constants
-# =============================================================================
-
-TEMP_MIN = -5.0
-"""Minimum temperature (°C) below which decomposition rate is zero."""
-
-JENKINSON_A = 47.91
-"""Coefficient A in the Jenkinson temperature rate modifier equation."""
-
-JENKINSON_B = 106.06
-"""Coefficient B in the Jenkinson temperature rate modifier equation."""
-
-JENKINSON_C = 18.27
-"""Coefficient C in the Jenkinson temperature rate modifier equation."""
-
-
-# =============================================================================
-# Plant Cover Rate Modifier Constants
-# =============================================================================
-
-RMF_PC_BARE = 1.0
-"""Rate modifying factor for bare soil (no plant cover)."""
-
-RMF_PC_COVERED = 0.6
-"""Rate modifying factor for covered soil (with plant cover)."""
-
-
-# =============================================================================
-# Simulation Constants
-# =============================================================================
-
-MONTHS_PER_YEAR = 12
-"""Number of months per year."""
-
-EQUILIBRIUM_THRESHOLD = 1e-6
-"""Threshold for spin-up convergence: maximum annual TOC change (t C/ha)."""
-
-
-# =============================================================================
-# Input Types
-# =============================================================================
-
-
-class RothCInputData(TypedDict):
-    """Input data dictionary for the RothC model.
-
-    All values are lists of monthly data, one entry per month.
-    The lists should all have the same length.
-
-    Attributes:
-        t_tmp: Monthly mean air temperature (°C).
-        t_rain: Monthly rainfall (mm).
-        t_evap: Monthly open pan evaporation (mm).
-        t_PC: Plant cover (0 = bare, 1 = covered).
-        t_DPM_RPM: Ratio of DPM to RPM in plant inputs.
-        t_C_Inp: Monthly plant carbon input (t C/ha).
-        t_FYM_Inp: Monthly farmyard manure input (t C/ha).
-        t_mod: Radiocarbon content as percentage modern carbon (%).
-        t_year: Calendar year for each month.
-        t_month: Month number (1-12) for each month.
-    """
-
-    t_tmp: list[float]
-    t_rain: list[float]
-    t_evap: list[float]
-    t_PC: list[int]
-    t_DPM_RPM: list[float]
-    t_C_Inp: list[float]
-    t_FYM_Inp: list[float]
-    t_mod: list[float]
-    t_year: list[int]
-    t_month: list[int]
-
-
-# =============================================================================
-# Data Classes
-# =============================================================================
-
-
-@dataclass(eq=False)
-class CarbonState:
-    """Soil carbon pool state for the RothC model.
-
-    Represents the state of all carbon pools and their radiocarbon ages
-    at a given timestep.
-
-    Attributes:
-        dpm: Decomposable Plant Material (t C/ha).
-        rpm: Resistant Plant Material (t C/ha).
-        bio: Microbial Biomass (t C/ha).
-        hum: Humified Organic Matter (t C/ha).
-        iom: Inert Organic Matter (t C/ha).
-        soc: Total Soil Organic Carbon (t C/ha).
-        dpm_rc_age: Radiocarbon age of DPM pool (years).
-        rpm_rc_age: Radiocarbon age of RPM pool (years).
-        bio_rc_age: Radiocarbon age of BIO pool (years).
-        hum_rc_age: Radiocarbon age of HUM pool (years).
-        iom_age: Radiocarbon age of IOM pool (years).
-        total_rc_age: Radiocarbon age of total SOC (years).
-        swc: Soil water content/deficit (mm).
-    """
-
-    dpm: float
-    rpm: float
-    bio: float
-    hum: float
-    iom: float
-    soc: float
-    dpm_rc_age: float
-    rpm_rc_age: float
-    bio_rc_age: float
-    hum_rc_age: float
-    iom_age: float
-    total_rc_age: float
-    swc: float
-
-    @classmethod
-    def zero(cls) -> Self:
-        """Create a CarbonState with all pools initialized to zero.
-
-        The IOM age is set to the default value (50000 years).
-        """
-        return cls(
-            dpm=0.0,
-            rpm=0.0,
-            bio=0.0,
-            hum=0.0,
-            iom=0.0,
-            soc=0.0,
-            dpm_rc_age=0.0,
-            rpm_rc_age=0.0,
-            bio_rc_age=0.0,
-            hum_rc_age=0.0,
-            iom_age=IOM_INITIAL_AGE,
-            total_rc_age=0.0,
-            swc=0.0,
-        )
-
-    def __eq__(
-        self, other: object, rel_tol: float = 1e-10, abs_tol: float = 1e-10
-    ) -> bool:
-        if not isinstance(other, CarbonState):
-            return False
-
-        return all(
-            [
-                isclose(
-                    getattr(self, attr),
-                    getattr(other, attr),
-                    rel_tol=rel_tol,
-                    abs_tol=abs_tol,
-                )
-                for attr in [
-                    "dpm",
-                    "rpm",
-                    "bio",
-                    "iom",
-                    "soc",
-                    "dpm_rc_age",
-                    "rpm_rc_age",
-                    "bio_rc_age",
-                    "hum_rc_age",
-                    "iom_age",
-                    "total_rc_age",
-                    "swc",
-                ]
-            ]
-        )
+from rothc_py.constants import (
+    BIO_RATE,
+    CLAW_A,
+    CLAW_B,
+    CLAW_C,
+    CLAW_D,
+    DPM_RATE,
+    EQUILIBRIUM_THRESHOLD,
+    EVAP_FACTOR,
+    FRAC_TO_BIO,
+    FRAC_TO_HUM,
+    FYM_FRAC_DPM,
+    FYM_FRAC_HUM,
+    FYM_FRAC_RPM,
+    HUM_RATE,
+    JENKINSON_A,
+    JENKINSON_B,
+    JENKINSON_C,
+    MONTHS_PER_YEAR,
+    RADIO_HALFLIFE,
+    RADIO_MEAN_LIFETIME,
+    RMF_MOIST_MAX,
+    RMF_MOIST_MIN,
+    RMF_PC_BARE,
+    RMF_PC_COVERED,
+    RPM_RATE,
+    SMD_1BAR_FRAC,
+    SMD_BARE_FRAC,
+    SMD_COEFF_A,
+    SMD_COEFF_B,
+    SMD_COEFF_C,
+    SMD_DEPTH_DIVISOR,
+    TEMP_MIN,
+    ZERO_THRESHOLD,
+)
+from rothc_py.containers import CarbonState, InputData
 
 
 # =============================================================================
@@ -691,7 +405,7 @@ class RothC:
 
         return new_state
 
-    def spin_up(self, data: RothCInputData) -> tuple[CarbonState, int]:
+    def spin_up(self, data: InputData) -> tuple[CarbonState, int]:
         """Spin up the RothC model to equilibrium.
 
         This method iteratively applies the same climate/input data until the
@@ -762,7 +476,7 @@ class RothC:
         return state, n_cycles
 
     def forward(
-        self, state: CarbonState, data: RothCInputData
+        self, state: CarbonState, data: InputData
     ) -> tuple[CarbonState, dict[str, list]]:
         """Run the forward simulation from an initial state.
 
@@ -773,88 +487,72 @@ class RothC:
         Returns:
             Tuple of (final carbon state, dict of monthly results where each key maps to a list of values).
         """
+        nsteps = len(data["t_tmp"])
 
-        def data_iterator():
-            return zip(
-                data["t_tmp"],
-                data["t_rain"],
-                data["t_evap"],
-                data["t_PC"],
-                data["t_DPM_RPM"],
-                data["t_C_Inp"],
-                data["t_FYM_Inp"],
-                data["t_mod"],
-            )
+        month_results: dict[str, list] = {
+            "Year": [],
+            "Month": [],
+            "DPM_t_C_ha": [],
+            "RPM_t_C_ha": [],
+            "BIO_t_C_ha": [],
+            "HUM_t_C_ha": [],
+            "IOM_t_C_ha": [],
+            "SOC_t_C_ha": [],
+            "deltaC": [],
+        }
 
-        (
-            dpm_monthly,
-            rpm_monthly,
-            bio_monthly,
-            hum_monthly,
-            iom_monthly,
-            soc_monthly,
-            delta_monthly,
-        ) = [], [], [], [], [], [], []
+        for i in range(nsteps):
+            temp = data["t_tmp"][i]
+            rain = data["t_rain"][i]
+            pevap = data["t_evap"][i]
 
-        for (
-            temp,
-            rain,
-            evap,
-            pc,
-            dpm_rpm,
-            c_inp,
-            fym_inp,
-            modern_c,
-        ) in data_iterator():
+            pc = bool(data["t_PC"][i])
+            dpm_rpm = data["t_DPM_RPM"][i]
+
+            c_inp = data["t_C_Inp"][i]
+            fym_inp = data["t_FYM_Inp"][i]
+
+            modern_c = data["t_mod"][i] / 100.0
+
             state = self.run_timestep(
                 state,
                 temp,
                 rain,
-                evap,
+                pevap,
                 pc,
                 dpm_rpm,
                 c_inp,
                 fym_inp,
-                modern_c / 100.0,
+                modern_c,
             )
-
-            dpm_monthly.append(state.dpm)
-            rpm_monthly.append(state.rpm)
-            bio_monthly.append(state.bio)
-            hum_monthly.append(state.hum)
-            iom_monthly.append(state.iom)
-            soc_monthly.append(state.soc)
 
             total_delta = (
                 exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0
             ) * 1000.0
-            delta_monthly.append(total_delta)
 
-        results = dict(
-            Year=data["t_year"],
-            Month=data["t_month"],
-            DPM_t_C_ha=dpm_monthly,
-            RPM_t_C_ha=rpm_monthly,
-            BIO_t_C_ha=bio_monthly,
-            HUM_t_C_ha=hum_monthly,
-            IOM_t_C_ha=iom_monthly,
-            SOC_t_C_ha=soc_monthly,
-            deltaC=delta_monthly,
-        )
+            month_results["Year"].append(data["t_year"][i])
+            month_results["Month"].append(data["t_month"][i])
+            month_results["DPM_t_C_ha"].append(state.dpm)
+            month_results["RPM_t_C_ha"].append(state.rpm)
+            month_results["BIO_t_C_ha"].append(state.bio)
+            month_results["HUM_t_C_ha"].append(state.hum)
+            month_results["IOM_t_C_ha"].append(state.iom)
+            month_results["SOC_t_C_ha"].append(state.soc)
+            month_results["deltaC"].append(total_delta)
 
-        return state, results
+        return state, month_results
 
     def __call__(
-        self, spinup_data: RothCInputData, forward_data: RothCInputData
+        self, data: InputData, spinup_data: InputData
     ) -> tuple[CarbonState, dict[str, list]]:
         """Run the full RothC simulation (spin-up + forward).
 
         Args:
+            data: Dictionary containing monthly climate and input data for forward run.
             spinup_data: Dictionary containing monthly climate and input data for spin-up.
-            forward_data: Dictionary containing monthly climate and input data for forward run.
 
         Returns:
             Tuple of (final carbon state, dict of monthly results where each key maps to a list of values).
         """
         state, _ = self.spin_up(spinup_data)
-        return self.forward(state, forward_data)
+        return self.forward(state, data)
