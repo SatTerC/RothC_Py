@@ -1,22 +1,21 @@
 # RothC_Py: Rothamsted Carbon Model in Python
 
-`RothC_Py` is an implementation of the **Rothamsted Carbon Model (RothC)** in Python.
-
-This repository is a fork of https://github.com/Rothamsted-Models/RothC_Py `v1.0.0`, provides a **heavily** refactored and packaged version of 
+RothC_Py is an implementation of the **Rothamsted Carbon Model (RothC)** in Python. It is a fork of [github.com/Rothamsted-Models/RothC_Py](https://github.com/Rothamsted-Models/RothC_Py) `v1.0.0`, which it itself a translation from a Fortran model that has been around in some form or another since the 1970s.
 
 ## Comparison with [Rothamsted-Models/RothC_Py](https://github.com/Rothamsted-Models/RothC_Py)
 
-The main changes with respect to the original are
+From the perspective of a Python user, the main advantages offered by this version with respect to the original are:
 
 - Properly packaged and hence installable via `pip` or `uv`
 - Faster (~20x)
 - Dependency-free
 - More concise, clear and documented code
-- Stylistic improvements
+
+This version does not introduce anything new or fancy, either from a scientific or software perspective.
 
 There are a couple of tests in `tests/test_rothc.py` to check for consistency with the original implementation, which can be run using `pytest` from the root of the repository.
 
-If you care about the details of what's changed it's all in the PR #1.
+If you care about the details of what's changed it's mostly contained in [Pull Request #1](https://github.com/SatTerC/RothC_Py/pull/1).
 
 The following files have been preserved from the original repo:
 
@@ -24,6 +23,11 @@ The following files have been preserved from the original repo:
 - LICENSE
 - README_v1.md 
 - RothC_description.pdf
+
+
+## Documentation
+
+The documentation (WIP) is hosted at [satterc.github.io/rothc_py](https://satterc.github.io/rothc_py). 
 
 ## Scientific Background
 
@@ -44,11 +48,6 @@ $$C_i(t) = C_{i,0} e^{-k_i \rho t}$$
 
 
 where $k$ is the decomposition constant and $\rho$ represents the combined rate-modifying factors.
-
-
-## Documentation
-
-This is a to do :)
 
 
 ## Developer Instructions
