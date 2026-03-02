@@ -22,8 +22,15 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    {include-group = "docs"},
     {include-group = "test"},
     "ruff>=0.15.4",
+]
+docs = [
+    "marimo>=0.20.2",
+    "mkdocs-marimo>=0.2.1",
+    "mkdocstrings-python>=2.0.3",
+    "zensical>=0.0.24",
 ]
 test = [
     "numpy>=2.4.2",
