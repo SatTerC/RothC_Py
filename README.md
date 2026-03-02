@@ -1,89 +1,112 @@
-# The Rothamsted carbon model Python version (RothC_Py)
+# RothC_Py: Rothamsted Carbon Model in Python
 
-## Purpose
+`RothC_Py` is an implementation of the **Rothamsted Carbon Model (RothC)** in Python.
 
-RothC models the turnover of organic carbon in non-waterlogged top-soil.  It accounts for the effects of soil texture, temperature, moisture content and plant cover on the turnover process. It uses a monthly time step to calculate total organic carbon (t ha<sup>-1</sup>), microbial biomass carbon (t ha<sup>-1</sup>) and Δ<sup>14</sup>C (from which the equivalent radiocarbon age of the soil can be calculated). 
+This repository is a fork of https://github.com/Rothamsted-Models/RothC_Py `v1.0.0`, provides a **heavily** refactored and packaged version of 
 
-## Development history
+## Comparison with [Rothamsted-Models/RothC_Py](https://github.com/Rothamsted-Models/RothC_Py)
 
-The first version of RothC created by David Jenkinson and James Rayner in 1977 (Jenkinson and Rayner, 1977).
+The main changes with respect to the original are
 
-In 1987 an updated version was published, see Jenkinson et al. (1987).  This version included the prediction of the radiocarbon age of the soil, the pools POM (physically stabilized organic matter) and COM (chemically stabilized organic matter) were replaced with Hum (humified organic matter) and IOM (inert organic matter), and the microbial biomass pool was split into BioA (autochthonous biomass) and BioZ (zymogenous biomass).  
+- Properly packaged and hence installable via `pip` or `uv`
+- Faster (~20x)
+- Dependency-free
+- More concise, clear and documented code
+- Stylistic improvements
 
-**In 1990, the two biomass pools were combined into a single pool (Jenkinson, 1990) this version is the standard version of the model, that this code refers to.**
+There are a couple of tests in `tests/test_rothc.py` to check for consistency with the original implementation, which can be run using `pytest` from the root of the repository.
 
-Other published developments of the model include:
+If you care about the details of what's changed it's all in the PR #1.
 
-Farina et al. (2013) modified the soil water dynamics for semi-arid regions.
+The following files have been preserved from the original repo:
 
-Giongo et al. (2020) created a daily version and modified the soil water dynamics, for Caatinga shrublands, in the semiarid region, North-East Brazil.
+- FUNDING.md
+- LICENSE
+- README_v1.md 
+- RothC_description.pdf
 
- 
-## Description of files included
+## Scientific Background
 
-### RothC_description.pdf
-This file contains the description of the model.
+The RothC model splits soil organic carbon (SOC) into five distinct compartments, four active and one inert. The model accounts for soil type (clay content), temperature, moisture, and plant cover to calculate the decay rates of these pools.
 
+### Carbon Pools:
 
-### RothC_Py.py
-This file contains the RothC code in Python language. Details of the inputs required, pools modelled, and units are in the code.
+* **DPM**: Decomposable Plant Material
+* **RPM**: Resistant Plant Material
+* **BIO**: Microbial Biomass
+* **HUM**: Humified Organic Matter
+* **IOM**: Inert Organic Matter
 
-
-### RothC_input.dat  
-This file contains input variables for the model.  
-
-At the start of the file values for **clay** (%), **soil depth** (cm), **inert organic matter** (IOM, t C ha<sup>-1</sup>) and **number of steps** (nsteps) are recorded.  
-Following that there is a table which records monthly data on **year**, **month**, **percentage of modern carbon**  (%), **mean air temperature** (Tmp, °C), **total monthly rainfall** (Rain, mm), **total monthly open-pan evaporation** (Evap, mm), **all carbon input entering the soil** (from plants, roots, root exudates) (C_inp, t C ha<sup>-1</sup>), **carbon input from farmyard manure** (FYM, t C ha<sup>-1</sup>), **plant cover** (PC, 0 for no plants e.g. bare or post-harvest, 1 for plants e.g. crop or grass), and the **DPM/RPM ratio** (DPM_RPM) of the carbon inputs from plants.
-
-### year_results.csv
-This file contains the yearly values of the SOC (both the pools and Total) and the delta 14-carbon.
-
-The pools are:  
-**Year**  
-**Month** 	- Always December for the yearly output  
-**DPM** 	- Decomposable plant material (t C ha<sup>-1</sup>)  
-**RPM** 	- Resistant plant material (t C ha<sup>-1</sup>)  
-**BIO** 	- Microbial biomass (t C ha<sup>-1</sup>)  
-**HUM**	- Humified organic matter (t C ha<sup>-1</sup>)  
-**IOM** 	- Inert organic matter (t C ha<sup>-1</sup>)  
-**SOC**	- Total soil organic carbon (t C ha<sup>-1</sup>)  
-**deltaC** 	- delta <sup>14</sup>C (‰)  
+The decay follows first-order kinetics, where each active pool $i$ evolves according to:
 
 
-The total organic carbon (soil organic carbon) is equal to the sum of the 5 pools. 
+$$C_i(t) = C_{i,0} e^{-k_i \rho t}$$
 
-TOC or SOC = DRM + RPM + BIO + HUM + IOM 
-     
-### month_results.csv
-This file contains the monthly inputs, rate modifying factors, SOC pools.
 
-**Year**  
-**Month**  
-**DPM_t_C_ha**		- Decomposable plant material (t C ha<sup>-1</sup>)  
-**RPM_t_C_ha**		- Resistant plant material (t C ha<sup>-1</sup>)  
-**BIO_t_C_ha**		- Microbial biomass (t C ha<sup>-1</sup>)  
-**HUM_t_C_ha**		- Humified organic matter (t C ha<sup>-1</sup>)  
-**IOM_t_C_ha**		- Inert organic matter (t C ha<sup>-1</sup>)  
-**SOC_t_C_ha**		- Total soil organic carbon (t C ha<sup>-1</sup>)  
+where $k$ is the decomposition constant and $\rho$ represents the combined rate-modifying factors.
 
-## Requirements
-The code was written in Python 3.9.7.
 
-## Installation/set-up
+## Documentation
 
-A directory path will need to be provided as indicated in the code ([“INPUT DIRECTORY PATH”]), to read in RothC_input.dat. 
+This is a to do :)
 
-**Example of how to run the model**  
-The file RothC_input.dat contains all the inputs data needed to run the model. The month results (month_results.csv) and year results (year_results.csv) files correspond to this input file as an example. 
-The model is normally run to equilibrium using average temperature, rainfall, open pan evaporation, an average carbon input to the soil, the equilibrium run is to initialise the soil carbon pools. Once the soil carbon pools have been initialised, the model is run for the period of interest. The met data (temperature, rainfall and evaporation) can be average or actual weather data. The carbon input to the soil can be: 1) adjusted so the modelled output matches the measured data, or 2) can be estimated from yield data (Bolinder et al., 2007), or NPP data.  
 
+## Developer Instructions
+
+This project uses **[uv](https://docs.astral.sh/uv/)** for dependency management and packaging.
+
+### Prerequisites
+
+* Python 3.13
+* `uv` installed (see [docs](https://docs.astral.sh/uv/getting-started/installation/))
+
+### Setup for Development
+
+1. **Clone the repository:**
+
+```bash
+git clone https://github.com/SatTerC/RothC_py.git
+cd RothC_Py
+```
+
+
+2. **Create a virtual environment and install dependencies:**
+
+```bash
+uv sync
+```
+
+
+3. **Activate the environment:**
+
+```bash
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
+
+
+4. **Run the tests:**
+
+```bash
+uv run pytest
+```
+
+5. **After making changes, run `ruff`**
+
+```bash
+ruff format
+ruff check
+```
+
+## Contributing
+
+At this point I'm not sure whether this fork will ever rejoin Rothamsted-Model/RothC_Py, so I'm not sure whether it makes sense to contribute to this repository or that one.
+In case there is interest in contributing maybe just reach out to the author (see the noreply address in pyproject.toml).
 
 ## References
 
-Bolinder MA, Janzen HH, Gregorich EG, Angers DA, VandenBygaart AJ. An approach for estimating net primary productivity and annual carbon inputs to soil for common agricultural crops in Canada. Agriculture, Ecosystems & Environment 2007; 118: 29-42.  
-Farina R, Coleman K, Whitmore AP. Modification of the RothC model for simulations of soil organic C dynamics in dryland regions. Geoderma 2013; 200: 18-30.  
-Giongo V, Coleman K, Santana MD, Salviano AM, Olszveski N, Silva DJ, et al. Optimizing multifunctional agroecosystems in irrigated dryland agriculture to restore soil carbon - Experiments and modelling. Science of the Total Environment 2020; 725.  
-Jenkinson DS. The Turnover of Organic-Carbon and Nitrogen in Soil. Philosophical Transactions of the Royal Society of London, Series B: Biological Sciences 1990; 329: 361-368.  
-Jenkinson DS, Hart PBS, Rayner JH, Parry LC. Modelling the turnover of organic matter in long-term experiments at Rothamsted. INTECOL Bulletin 1987; 15: 1-8.  
-Jenkinson DS, Rayner JH. Turnover of soil organic matter in some of the Rothamsted classical experiments. Soil Science 1977; 123: 298-305.  
-
+* **Bolinder MA, et al. (2007).** An approach for estimating net primary productivity and annual carbon inputs to soil for common agricultural crops in Canada. *Agriculture, Ecosystems & Environment*, 118: 29-42.
+* **Farina R, et al. (2013).** Modification of the RothC model for simulations of soil organic C dynamics in dryland regions. *Geoderma*, 200: 18-30.
+* **Giongo V, et al. (2020).** Optimizing multifunctional agroecosystems in irrigated dryland agriculture to restore soil carbon - Experiments and modelling. *Science of the Total Environment*, 725.
+* **Jenkinson DS. (1990).** The Turnover of Organic-Carbon and Nitrogen in Soil. *Philosophical Transactions of the Royal Society of London, Series B: Biological Sciences*, 329: 361-368.
+* **Jenkinson DS, et al. (1987).** Modelling the turnover of organic matter in long-term experiments at Rothamsted. *INTECOL Bulletin*, 15: 1-8.
+* **Jenkinson DS, Rayner JH. (1977).** Turnover of soil organic matter in some of the Rothamsted classical experiments. *Soil Science*, 123: 298-305.
