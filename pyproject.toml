@@ -20,9 +20,6 @@ authors = [
 requires-python = ">=3.13"
 dependencies = []
 
-[project.scripts]
-rothc = "rothc_py.cli:main"
-
 [dependency-groups]
 dev = [
     {include-group = "test"},
