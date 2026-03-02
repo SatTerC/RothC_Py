@@ -748,7 +748,7 @@ class RothC:
         year_results = [
             {
                 "Year": 1,
-                "Month": 13,
+                "Month": None,  # TODO: get rid of this shit. This should be n_cycles * 12 but like ugh, why
                 "DPM_t_C_ha": state.dpm,
                 "RPM_t_C_ha": state.rpm,
                 "BIO_t_C_ha": state.bio,

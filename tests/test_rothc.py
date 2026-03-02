@@ -70,7 +70,13 @@ def test_output_matches_expected(
     rothc_params, rothc_data, expected_years, expected_months
 ):
     spinup_data, forward_data = rothc_data
-    year_results, month_results = RothC(**rothc_params)(forward_data, spinup_data)
+    model = RothC(**rothc_params)
+    state, n_cycles = model.spin_up(spinup_data)
+    year_results, month_results = model.forward(state, forward_data)
+
+    # NOTE: this is another weird thing where the original output data has the number of spin-up iterations
+    # as the "month" value corresponding to year 1, i.e. the spinup year.
+    year_results[0]["Month"] = n_cycles * 12
 
     actual_years = pd.DataFrame(year_results)
     actual_months = pd.DataFrame(month_results)
