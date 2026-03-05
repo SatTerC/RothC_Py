@@ -1,5 +1,5 @@
 from datetime import datetime
-from rothc_py.modernc import percent_modern_c, DECAY_LAMBDA
+from rothc_py.modernc import percent_modern_c, MODERN_C_DECAY_LAMBDA
 
 
 class TestModernC:
@@ -70,11 +70,11 @@ class TestDecayLambda:
 
     def test_decay_lambda_is_positive(self):
         """DECAY_LAMBDA should be positive for decay behavior."""
-        assert DECAY_LAMBDA > 0
+        assert MODERN_C_DECAY_LAMBDA > 0
 
     def test_decay_lambda_reasonable_magnitude(self):
         """DECAY_LAMBDA should be on order 0.005 per month."""
-        assert 0.001 < DECAY_LAMBDA < 0.01
+        assert 0.001 < MODERN_C_DECAY_LAMBDA < 0.01
 
     def test_exponential_decay_formula(self):
         """Verify the exponential decay formula gives expected results."""
@@ -82,9 +82,9 @@ class TestDecayLambda:
 
         excess = 6.8  # 106.8 - 100
         # After 1 month
-        expected_1 = 100 + excess * exp(-DECAY_LAMBDA * 1)
+        expected_1 = 100 + excess * exp(-MODERN_C_DECAY_LAMBDA * 1)
         # After 12 months (1 year)
-        expected_12 = 100 + excess * exp(-DECAY_LAMBDA * 12)
+        expected_12 = 100 + excess * exp(-MODERN_C_DECAY_LAMBDA * 12)
 
         result = percent_modern_c(datetime(2007, 12, 1), 13)
         assert abs(result[1] - expected_1) < 0.001

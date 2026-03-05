@@ -4,10 +4,9 @@ from math import exp
 from pathlib import Path
 from typing import Generator
 
-csv_path = Path(__file__).parent / "data" / "modernc.csv"
+from .constants import MODERN_C_DECAY_LAMBDA
 
-DECAY_LAMBDA = 0.00513
-"""Characteristic timescale for the exponential decay of ^14^C in months^-1^."""
+csv_path = Path(__file__).parent / "data" / "modernc.csv"
 
 
 def _read_csv() -> tuple[list[datetime], list[float]]:
@@ -61,7 +60,9 @@ def _yield_values(start_year: int, start_month: int) -> Generator[float, None, N
         )
 
     while True:
-        yield 100 + excess_at_last_obs * exp(-DECAY_LAMBDA * months_since_last_obs)
+        yield 100 + excess_at_last_obs * exp(
+            -MODERN_C_DECAY_LAMBDA * months_since_last_obs
+        )
         months_since_last_obs += 1
 
 
@@ -69,15 +70,15 @@ def percent_modern_c(start_date: datetime, n_months: int) -> list[float]:
     """
     Returns the % modern radiocarbon values for a given time period.
 
-    Uses the actual atmospheric radiocarbon data extracted from example_inputs.dat,
-    which reproduces the curve of % modern C as in Fig 5 of the RothC description.
+    Uses the actual atmospheric radiocarbon data provided by Rothamsted, which
+    reproduces the curve of % modern C as in Fig 5 of the RothC description.
 
     Args:
         start_date: The start date for the time series.
         n_months: Number of months to return.
 
     Returns:
-        List of % modern radiocarbon values for each month
+        List of % modern radiocarbon values for each month.
 
     Notes:
         Only the `year` and `month` attributes of `start_date` are used. Any `day`
