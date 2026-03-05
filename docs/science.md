@@ -28,6 +28,14 @@ where $k$ is the decomposition constant and $\rho$ represents the combined rate-
 
 See the model description paper by the original code authors (Coleman, Prout and Milne, Rothamsted Research): [github.com/Rothamsted-Models/RothC_Py/RothC_description.pdf](https://github.com/Rothamsted-Models/RothC_Py/blob/main/RothC_description.pdf).
 
+
+## Modern C curve
+
+These values are used internally.
+See Fig 5 in the original authors' description paper.
+
+![Percent Modern C values used by the model.](modernc.png)
+
 ## References
 
 * **Bolinder MA, et al. (2007).** An approach for estimating net primary productivity and annual carbon inputs to soil for common agricultural crops in Canada. *Agriculture, Ecosystems & Environment*, 118: 29-42.

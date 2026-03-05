@@ -18,6 +18,17 @@ RADIO_MEAN_LIFETIME = 8035.0
 IOM_INITIAL_AGE = 50000.0
 """Default initial age of inert organic matter, implying negligible 14C (years)."""
 
+MODERN_C_DECAY_LAMBDA = 0.00513
+r"""Empirical timescale for the removal of atmospheric ^14^C in months^-1^.
+
+    This is based on fitting an single exponential decary,
+
+    $ x(t) = x(0) e^{-\lambda t} $
+
+    to two (time, excess modern C) points: (1964, 96%) and (2007, 6.8%), which
+    yields λ = 0.616 years^-1^ or λ = 0.00513 months^-1^.
+"""
+
 
 # =============================================================================
 # Decomposition Rate Constants
