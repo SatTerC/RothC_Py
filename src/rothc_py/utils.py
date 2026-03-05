@@ -38,7 +38,12 @@ def _modern_values(start_year: int, start_month: int) -> Generator[float, None, 
             12 * start_date.year + start_date.month
         )
         historic_values = reversed(
-            [obs for _, obs in zip(range(months_before_last_obs), reversed(obs_values))]
+            [
+                obs
+                for _, obs in zip(
+                    range(months_before_last_obs + 1), reversed(obs_values)
+                )
+            ]
         )
     else:
         historic_values = []
@@ -46,7 +51,7 @@ def _modern_values(start_year: int, start_month: int) -> Generator[float, None, 
     for value in historic_values:
         yield value
 
-    value_at_last_obs = obs_values[-1]
+    excess_at_last_obs = obs_values[-1] - 100
 
     if start_date <= last_obs:
         months_since_last_obs = 1  # start 1 month after last obs
@@ -56,10 +61,11 @@ def _modern_values(start_year: int, start_month: int) -> Generator[float, None, 
         )
 
     while True:
-        yield value_at_last_obs * exp(-DECAY_LAMBDA * months_since_last_obs)
+        yield 100 + excess_at_last_obs * exp(-DECAY_LAMBDA * months_since_last_obs)
+        months_since_last_obs += 1
 
 
-def modern_c(start_date, n_months):
+def modern_c(start_date: datetime, n_months: int) -> list[float]:
     """
     Returns the % modern radiocarbon values for a given time period.
 
@@ -83,6 +89,7 @@ def modern_c(start_date, n_months):
     Only the `year` and `month` attributes of `start_date` are used. Any `day`
     or `time` information will be ignored.
     """
+    assert n_months >= 1
     return [
         value
         for _, value in zip(
