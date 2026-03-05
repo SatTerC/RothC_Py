@@ -6,7 +6,7 @@ including input data types and the carbon state representation.
 
 from dataclasses import dataclass
 from math import isclose
-from typing import Self, TypedDict
+from typing import NotRequired, Self, TypedDict
 
 from rothc_py.constants import IOM_INITIAL_AGE
 
@@ -43,8 +43,8 @@ class InputData(TypedDict):
     t_C_Inp: list[float]
     t_FYM_Inp: list[float]
     t_mod: list[float]
-    t_year: list[int]
-    t_month: list[int]
+    t_year: NotRequired[list[int]]
+    t_month: NotRequired[list[int]]
 
 
 # =============================================================================

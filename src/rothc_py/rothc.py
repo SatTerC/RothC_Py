@@ -485,11 +485,9 @@ class RothC:
         Returns:
             Tuple of (final carbon state, dict of monthly results where each key maps to a list of values).
         """
-        nsteps = len(data["t_tmp"])
+        n_months = len(data["t_tmp"])
 
-        month_results: dict[str, list] = {
-            "Year": [],
-            "Month": [],
+        month_results = {
             "DPM_t_C_ha": [],
             "RPM_t_C_ha": [],
             "BIO_t_C_ha": [],
@@ -499,7 +497,14 @@ class RothC:
             "deltaC": [],
         }
 
-        for i in range(nsteps):
+        # Add year and month to results for consistency with original & so that tests pass.
+        # Note that the order matters - t_year and t_month need to be first 2 cols. UGH
+        if "t_year" in data and "t_month" in data:
+            month_results = (
+                dict(t_year=data["t_year"], t_month=data["t_month"]) | month_results
+            )
+
+        for i in range(n_months):
             temp = data["t_tmp"][i]
             rain = data["t_rain"][i]
             pevap = data["t_evap"][i]
@@ -528,8 +533,6 @@ class RothC:
                 exp(-state.total_rc_age / RADIO_MEAN_LIFETIME) - 1.0
             ) * 1000.0
 
-            month_results["Year"].append(data["t_year"][i])
-            month_results["Month"].append(data["t_month"][i])
             month_results["DPM_t_C_ha"].append(state.dpm)
             month_results["RPM_t_C_ha"].append(state.rpm)
             month_results["BIO_t_C_ha"].append(state.bio)
