@@ -408,7 +408,6 @@ class RothC:
 
         This method iteratively applies the same climate/input data until the
         annual change in total organic carbon falls below a threshold.
-        Only the first 12 months of data are used, cycling through them repeatedly.
 
         Args:
             data: Dictionary containing monthly climate and input data.
