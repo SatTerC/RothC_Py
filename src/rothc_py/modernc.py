@@ -4,25 +4,25 @@ from math import exp
 from pathlib import Path
 from typing import Generator
 
-csv_path = Path(__file__).parent / "data" / "modern.csv"
+csv_path = Path(__file__).parent / "data" / "modernc.csv"
 
 DECAY_LAMBDA = 0.00513
-"""Characteristic timescale for the exponential decay of carbon post 1964 in months^(-1)."""
+"""Characteristic timescale for the exponential decay of ^14^C in months^-1^."""
 
 
-def _read_modern_csv() -> tuple[list[datetime], list[float]]:
+def _read_csv() -> tuple[list[datetime], list[float]]:
     dates = []
     moderns = []
     with open(csv_path, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            dates.append(datetime.strptime(row["date"], "%Y-%m-%d"))
+            dates.append(datetime.strptime(row["date"], "%Y-%m"))
             moderns.append(float(row["modern"]))
     return dates, moderns
 
 
-def _modern_values(start_year: int, start_month: int) -> Generator[float, None, None]:
-    obs_dates, obs_values = _read_modern_csv()
+def _yield_values(start_year: int, start_month: int) -> Generator[float, None, None]:
+    obs_dates, obs_values = _read_csv()
 
     start_date = datetime(start_year, start_month, 1)
     first_obs = obs_dates[0]
@@ -65,34 +65,28 @@ def _modern_values(start_year: int, start_month: int) -> Generator[float, None, 
         months_since_last_obs += 1
 
 
-def modern_c(start_date: datetime, n_months: int) -> list[float]:
+def percent_modern_c(start_date: datetime, n_months: int) -> list[float]:
     """
     Returns the % modern radiocarbon values for a given time period.
 
     Uses the actual atmospheric radiocarbon data extracted from example_inputs.dat,
     which reproduces the curve of % modern C as in Fig 5 of the RothC description.
 
-    Parameters
-    ----------
-    start_date : datetime
-        The start date for the time series
-    n_months : int
-        Number of months to return
+    Args:
+        start_date: The start date for the time series.
+        n_months: Number of months to return.
 
-    Returns
-    -------
-    list[float]
+    Returns:
         List of % modern radiocarbon values for each month
 
-    Notes
-    -----
-    Only the `year` and `month` attributes of `start_date` are used. Any `day`
-    or `time` information will be ignored.
+    Notes:
+        Only the `year` and `month` attributes of `start_date` are used. Any `day`
+        or `time` information will be ignored.
     """
     assert n_months >= 1
     return [
         value
         for _, value in zip(
-            range(n_months), _modern_values(start_date.year, start_date.month)
+            range(n_months), _yield_values(start_date.year, start_date.month)
         )
     ]
