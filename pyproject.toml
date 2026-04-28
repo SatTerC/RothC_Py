@@ -24,6 +24,7 @@ dependencies = []
 dev = [
     {include-group = "docs"},
     {include-group = "test"},
+    "pre-commit>=4.6.0",
     "ruff>=0.15.4",
     "rust-just>=1.46.0",
 ]
