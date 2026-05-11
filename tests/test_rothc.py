@@ -4,7 +4,7 @@ import pytest
 import time
 from pathlib import Path
 
-from rothc_py import CarbonState, RothC
+from rothc_py import CarbonState, RothC, RothCParams
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -25,11 +25,11 @@ def rothc_params(input_file):
         index_col=None,
         sep=r"\s+",
     )
-    return {
-        "clay": df_head.loc[0, "clay"],
-        "depth": df_head.loc[0, "depth"],
-        "iom": float(df_head.loc[0, "iom"]),
-    }
+    return RothCParams(
+        clay=df_head.loc[0, "clay"],
+        depth=df_head.loc[0, "depth"],
+        iom=float(df_head.loc[0, "iom"]),
+    )
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ def expected_spun_up_state():
 
 def test_output_matches_expected(rothc_params, rothc_data, expected_results):
     spinup_data, forward_data = rothc_data
-    model = RothC(**rothc_params)
+    model = RothC(rothc_params)
     _, actual_results = model(forward_data, spinup_data)
 
     actual_results = pd.DataFrame(actual_results)
@@ -94,7 +94,7 @@ def test_output_matches_expected(rothc_params, rothc_data, expected_results):
 
 def test_spin_up_matches_expected(rothc_params, rothc_data, expected_spun_up_state):
     spinup_data, _ = rothc_data
-    model = RothC(**rothc_params)
+    model = RothC(rothc_params)
     state, n_cycles = model.spin_up(spinup_data)
 
     # NOTE: original counted n_cycles in a very strange way: one iter == one cycle, but cycles
@@ -109,7 +109,7 @@ def test_spin_up_matches_expected(rothc_params, rothc_data, expected_spun_up_sta
 def test_timing(rothc_params, rothc_data):
     spinup_data, forward_data = rothc_data
     start = time.perf_counter()
-    RothC(**rothc_params)(forward_data, spinup_data)
+    RothC(rothc_params)(forward_data, spinup_data)
     end = time.perf_counter()
 
     elapsed = end - start
