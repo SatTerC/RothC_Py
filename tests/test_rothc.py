@@ -85,7 +85,8 @@ def test_output_matches_expected(rothc_params, rothc_data, expected_results):
     model = RothC(rothc_params)
     _, actual_results = model(forward_data, spinup_data)
 
-    actual_results = pd.DataFrame(actual_results)
+    # CO2_t_C_ha is not in the original RothC reference dataset
+    actual_results = pd.DataFrame(actual_results).drop(columns=["CO2_t_C_ha"])
 
     np.testing.assert_allclose(
         actual_results.values, expected_results.values, rtol=1e-10

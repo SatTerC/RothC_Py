@@ -223,7 +223,7 @@ class RothC:
             dpm_rpm: Ratio of DPM to RPM in plant inputs.
 
         Returns:
-            Updated CarbonState.
+            Tuple of (updated CarbonState, total CO2 respired this timestep in t C/ha).
         """
         dpm = state.dpm
         rpm = state.rpm
@@ -257,10 +257,12 @@ class RothC:
 
         x = CLAW_A * (CLAW_B + CLAW_C * exp(-CLAW_D * self.params.clay))
 
-        _, dpm_bio, dpm_hum = self.partition_carbon_flows(dpm_d, x)
-        _, rpm_bio, rpm_hum = self.partition_carbon_flows(rpm_d, x)
-        _, bio_bio, bio_hum = self.partition_carbon_flows(bio_d, x)
-        _, hum_bio, hum_hum = self.partition_carbon_flows(hum_d, x)
+        co2_dpm, dpm_bio, dpm_hum = self.partition_carbon_flows(dpm_d, x)
+        co2_rpm, rpm_bio, rpm_hum = self.partition_carbon_flows(rpm_d, x)
+        co2_bio, bio_bio, bio_hum = self.partition_carbon_flows(bio_d, x)
+        co2_hum, hum_bio, hum_hum = self.partition_carbon_flows(hum_d, x)
+
+        total_co2 = co2_dpm + co2_rpm + co2_bio + co2_hum
 
         dpm_new = dpm1
         rpm_new = rpm1
@@ -341,7 +343,7 @@ class RothC:
             iom_age=iom_age,
             total_rc_age=total_rc_age_new,
             swc=state.swc,
-        )
+        ), total_co2
 
     def run_timestep(
         self,
@@ -354,7 +356,7 @@ class RothC:
         c_inp: float,
         fym_inp: float,
         modern_c: float,
-    ) -> CarbonState:
+    ) -> tuple[CarbonState, float]:
         """Run one timestep of the RothC model.
 
         Calculates rate modifying factors for temperature, moisture, and plant
@@ -372,7 +374,7 @@ class RothC:
             modern_c: Fraction of modern carbon (0.0 to 1.0).
 
         Returns:
-            Updated CarbonState.
+            Tuple of (updated CarbonState, total CO2 respired this timestep in t C/ha).
         """
         rm_tmp = self.temperature_rate_modifier(temp)
         rm_moist, swc = self.moisture_rate_modifier(rain, pevap, pc, state.swc)
@@ -380,7 +382,7 @@ class RothC:
 
         rate_m = rm_tmp * rm_moist * rm_pc
 
-        new_state = self.decompose_pools(
+        new_state, co2 = self.decompose_pools(
             state,
             modern_c,
             rate_m,
@@ -391,7 +393,7 @@ class RothC:
 
         new_state.swc = swc
 
-        return new_state
+        return new_state, co2
 
     def spin_up(self, data: InputData) -> tuple[CarbonState, int]:
         """Spin up the RothC model to equilibrium.
@@ -439,7 +441,7 @@ class RothC:
                 fym_inp,
                 modern_c,
             ) in data_iterator():
-                state = self.run_timestep(
+                state, _ = self.run_timestep(
                     state,
                     temp,
                     rain,
@@ -486,6 +488,7 @@ class RothC:
             "HUM_t_C_ha": [],
             "IOM_t_C_ha": [],
             "SOC_t_C_ha": [],
+            "CO2_t_C_ha": [],
             "deltaC": [],
         }
 
@@ -509,7 +512,7 @@ class RothC:
 
             modern_c = data["t_mod"][i] / 100.0
 
-            state = self.run_timestep(
+            state, co2 = self.run_timestep(
                 state,
                 temp,
                 rain,
@@ -531,6 +534,7 @@ class RothC:
             month_results["HUM_t_C_ha"].append(state.hum)
             month_results["IOM_t_C_ha"].append(state.iom)
             month_results["SOC_t_C_ha"].append(state.soc)
+            month_results["CO2_t_C_ha"].append(co2)
             month_results["deltaC"].append(total_delta)
 
         return state, month_results
