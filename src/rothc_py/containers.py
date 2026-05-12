@@ -8,7 +8,54 @@ from dataclasses import dataclass
 from math import isclose
 from typing import NotRequired, Self, TypedDict
 
-from rothc_py.constants import IOM_INITIAL_AGE
+from rothc_py.constants import (
+    BIO_RATE,
+    DPM_RATE,
+    EQUILIBRIUM_THRESHOLD,
+    EVAP_FACTOR,
+    HUM_RATE,
+    IOM_INITIAL_AGE,
+    RPM_RATE,
+    ZERO_THRESHOLD,
+)
+
+
+# =============================================================================
+# Model Parameters
+# =============================================================================
+
+
+@dataclass
+class RothCParams:
+    """Configuration parameters for the RothC model.
+
+    Required site-specific parameters have no defaults. Optional parameters
+    default to the canonical RothC values and can be overridden for
+    calibration or sensitivity analysis.
+
+    Attributes:
+        clay: Clay content of the soil (%).
+        depth: Depth of topsoil (cm).
+        iom: Inert organic matter (t C/ha).
+        dpm_rate: Decomposition rate constant for Decomposable Plant Material (yr⁻¹).
+        rpm_rate: Decomposition rate constant for Resistant Plant Material (yr⁻¹).
+        bio_rate: Decomposition rate constant for Microbial Biomass (yr⁻¹).
+        hum_rate: Decomposition rate constant for Humified Organic Matter (yr⁻¹).
+        evap_factor: Factor to convert open-pan evaporation to evapotranspiration.
+        equilibrium_threshold: Spin-up convergence criterion: maximum annual TOC change (t C/ha).
+        zero_threshold: Minimum pool size for numerical stability in radiocarbon age calculations.
+    """
+
+    clay: float
+    depth: float
+    iom: float
+    dpm_rate: float = DPM_RATE
+    rpm_rate: float = RPM_RATE
+    bio_rate: float = BIO_RATE
+    hum_rate: float = HUM_RATE
+    evap_factor: float = EVAP_FACTOR
+    equilibrium_threshold: float = EQUILIBRIUM_THRESHOLD
+    zero_threshold: float = ZERO_THRESHOLD
 
 
 # =============================================================================

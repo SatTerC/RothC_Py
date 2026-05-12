@@ -8,20 +8,15 @@ from math import exp, log
 import logging
 
 from rothc_py.constants import (
-    BIO_RATE,
     CLAW_A,
     CLAW_B,
     CLAW_C,
     CLAW_D,
-    DPM_RATE,
-    EQUILIBRIUM_THRESHOLD,
-    EVAP_FACTOR,
     FRAC_TO_BIO,
     FRAC_TO_HUM,
     FYM_FRAC_DPM,
     FYM_FRAC_HUM,
     FYM_FRAC_RPM,
-    HUM_RATE,
     JENKINSON_A,
     JENKINSON_B,
     JENKINSON_C,
@@ -32,7 +27,6 @@ from rothc_py.constants import (
     RMF_MOIST_MIN,
     RMF_PC_BARE,
     RMF_PC_COVERED,
-    RPM_RATE,
     SMD_1BAR_FRAC,
     SMD_BARE_FRAC,
     SMD_COEFF_A,
@@ -40,293 +34,8 @@ from rothc_py.constants import (
     SMD_COEFF_C,
     SMD_DEPTH_DIVISOR,
     TEMP_MIN,
-    ZERO_THRESHOLD,
 )
-from rothc_py.containers import CarbonState, InputData
-
-
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-
-def temperature_rate_modifier(temp: float) -> float:
-    """Calculate the rate modifying factor for temperature.
-
-    Uses the Jenkinson equation to calculate the temperature rate modifier
-    based on monthly mean air temperature.
-
-    Args:
-        temp: Monthly mean air temperature (°C).
-
-    Returns:
-        Rate modifying factor for temperature (typically 0.0 to ~5.0).
-    """
-    return (
-        JENKINSON_A / (exp(JENKINSON_B / (temp + JENKINSON_C)) + 1.0)
-        if temp > TEMP_MIN
-        else 0.0
-    )
-
-
-def moisture_rate_modifier(
-    rain: float,
-    pevap: float,
-    clay: float,
-    depth: float,
-    pc: bool,
-    swc: float,
-) -> tuple[float, float]:
-    """Calculate the rate modifying factor for moisture.
-
-    Calculates soil moisture deficit and derives a rate modifier based on
-    the soil water balance, accounting for rainfall, evaporation, and
-    plant cover.
-
-    Args:
-        rain: Monthly rainfall (mm).
-        pevap: Open pan evaporation (mm).
-        clay: Clay content of soil (%).
-        depth: Depth of topsoil (cm).
-        pc: Plant cover (False = no cover, True = covered).
-        swc: Soil water content/deficit (mm).
-
-    Returns:
-        Tuple of (rate modifying factor for moisture, updated swc).
-        rm_moist is typically between 0.2 and 1.0.
-    """
-    smd_max = -(SMD_COEFF_A + SMD_COEFF_B * clay - SMD_COEFF_C * (clay * clay))
-    smd_max_adj = smd_max * depth / SMD_DEPTH_DIVISOR
-    smd_1bar = SMD_1BAR_FRAC * smd_max_adj
-    smd_bare = SMD_BARE_FRAC * smd_max_adj
-
-    df = rain - EVAP_FACTOR * pevap
-
-    min_swc_df = min(0.0, swc + df)
-
-    if pc:
-        swc_new = max(smd_max_adj, min_swc_df)
-    else:
-        min_smd_bare_swc = min(smd_bare, swc)
-        swc_new = max(min_smd_bare_swc, min_swc_df)
-
-    if swc_new > smd_1bar:
-        rm_moist = RMF_MOIST_MAX
-    else:
-        rm_moist = RMF_MOIST_MIN + (RMF_MOIST_MAX - RMF_MOIST_MIN) * (
-            smd_max_adj - swc_new
-        ) / (smd_max_adj - smd_1bar)
-
-    return rm_moist, swc_new
-
-
-def plant_cover_rate_modifier(pc: bool) -> float:
-    """Calculate the plant retainment modifying factor.
-
-    Returns a reduced rate when the soil is covered by vegetation,
-    representing reduced decomposition due to litter retention.
-
-    Args:
-        pc: Plant cover (False = no cover/bare soil, True = covered by crop).
-
-    Returns:
-        Rate modifying factor: 1.0 for bare soil, 0.6 for covered soil.
-    """
-    return RMF_PC_COVERED if pc else RMF_PC_BARE
-
-
-def decompose_single_pool(
-    pool: float, rate_k: float, rate_m: float, tstep: float
-) -> tuple[float, float]:
-    """Decompose a carbon pool using first-order decay kinetics.
-
-    Args:
-        pool: Carbon pool size (t C/ha).
-        rate_k: Decomposition rate constant for this pool (per year).
-        rate_m: Combined rate modifier (temperature × moisture × plant cover).
-        tstep: Timestep (1/12 for monthly, 1/365 for daily).
-
-    Returns:
-        Tuple of (remaining_pool, decomposed_amount).
-    """
-    remaining = pool * exp(-rate_m * rate_k * tstep)
-    decomposed = pool - remaining
-    return remaining, decomposed
-
-
-def partition_carbon_flows(decomposed: float, x: float) -> tuple[float, float, float]:
-    """Partition decomposed carbon into CO2, BIO, and HUM fractions.
-
-    The partitioning coefficient x depends on clay content and determines
-    the proportion lost as CO2 vs incorporated into biomass/humus.
-
-    Args:
-        decomposed: Amount of carbon decomposed (t C/ha).
-        x: Clay-dependent partitioning coefficient.
-
-    Returns:
-        Tuple of (co2, bio, hum) carbon amounts.
-    """
-    total = x + 1
-    co2 = decomposed * (x / total)
-    bio = decomposed * (FRAC_TO_BIO / total)
-    hum = decomposed * (FRAC_TO_HUM / total)
-    return co2, bio, hum
-
-
-def calculate_radiocarbon_age(pool_new: float, ract_new: float, conr: float) -> float:
-    """Calculate radiocarbon age from pool size and activity.
-
-    Uses the radioactive decay equation inverted to solve for age:
-    age = -ln(remaining/initial) / lambda
-    where lambda = ln(2) / half_life
-
-    Args:
-        pool_new: Current pool size (t C/ha).
-        ract_new: Radiocarbon activity (modern C equivalents).
-        conr: Decay constant (1/mean_lifetime).
-
-    Returns:
-        Radiocarbon age in years.
-    """
-    return (
-        log(pool_new / ract_new) / conr if pool_new > ZERO_THRESHOLD else ZERO_THRESHOLD
-    )
-
-
-def decompose_pools(
-    state: CarbonState,
-    modern_c: float,
-    rate_m: float,
-    clay: float,
-    c_inp: float,
-    fym_inp: float,
-    dpm_rpm: float,
-) -> CarbonState:
-    """Calculate decomposition and radiocarbon age for soil carbon pools.
-
-    Performs monthly carbon pool updates including: first-order decay
-    kinetics, carbon flow between pools (DPM, RPM, BIO, HUM), CO2
-    respiration, and radiocarbon age calculations.
-
-    Args:
-        state: Current carbon state (pools and ages).
-        modern_c: Fraction of modern carbon (0.0 to 1.0).
-        rate_m: Combined rate modifier.
-        clay: Clay content of soil (%).
-        c_inp: Plant carbon input (t C/ha).
-        fym_inp: Farmyard manure carbon input (t C/ha).
-        dpm_rpm: Ratio of DPM to RPM in plant inputs.
-
-    Returns:
-        Updated CarbonState.
-    """
-    dpm = state.dpm
-    rpm = state.rpm
-    bio = state.bio
-    hum = state.hum
-    iom = state.iom
-    dpm_rc_age = state.dpm_rc_age
-    rpm_rc_age = state.rpm_rc_age
-    bio_rc_age = state.bio_rc_age
-    hum_rc_age = state.hum_rc_age
-    iom_age = state.iom_age
-
-    conr = log(2.0) / RADIO_HALFLIFE
-
-    tstep = 1.0 / MONTHS_PER_YEAR
-
-    exc = exp(-conr * tstep)
-
-    dpm1, dpm_d = decompose_single_pool(dpm, DPM_RATE, rate_m, tstep)
-    rpm1, rpm_d = decompose_single_pool(rpm, RPM_RATE, rate_m, tstep)
-    bio1, bio_d = decompose_single_pool(bio, BIO_RATE, rate_m, tstep)
-    hum1, hum_d = decompose_single_pool(hum, HUM_RATE, rate_m, tstep)
-
-    x = CLAW_A * (CLAW_B + CLAW_C * exp(-CLAW_D * clay))
-
-    _, dpm_bio, dpm_hum = partition_carbon_flows(dpm_d, x)
-    _, rpm_bio, rpm_hum = partition_carbon_flows(rpm_d, x)
-    _, bio_bio, bio_hum = partition_carbon_flows(bio_d, x)
-    _, hum_bio, hum_hum = partition_carbon_flows(hum_d, x)
-
-    dpm_new = dpm1
-    rpm_new = rpm1
-    bio_new = bio1 + dpm_bio + rpm_bio + bio_bio + hum_bio
-    hum_new = hum1 + dpm_hum + rpm_hum + bio_hum + hum_hum
-
-    pi_c_dpm = dpm_rpm / (dpm_rpm + 1.0) * c_inp
-    pi_c_rpm = 1.0 / (dpm_rpm + 1.0) * c_inp
-
-    fym_c_dpm = FYM_FRAC_DPM * fym_inp
-    fym_c_rpm = FYM_FRAC_RPM * fym_inp
-    fym_c_hum = FYM_FRAC_HUM * fym_inp
-
-    dpm_new = dpm_new + pi_c_dpm + fym_c_dpm
-    rpm_new = rpm_new + pi_c_rpm + fym_c_rpm
-    hum_new = hum_new + fym_c_hum
-
-    dpm_ract = dpm1 * exp(-conr * dpm_rc_age)
-    rpm_ract = rpm1 * exp(-conr * rpm_rc_age)
-
-    bio_ract = bio1 * exp(-conr * bio_rc_age)
-    dpm_bio_ract = dpm_bio * exp(-conr * dpm_rc_age)
-    rpm_bio_ract = rpm_bio * exp(-conr * rpm_rc_age)
-    bio_bio_ract = bio_bio * exp(-conr * bio_rc_age)
-    hum_bio_ract = hum_bio * exp(-conr * hum_rc_age)
-
-    hum_ract = hum1 * exp(-conr * hum_rc_age)
-    dpm_hum_ract = dpm_hum * exp(-conr * dpm_rc_age)
-    rpm_hum_ract = rpm_hum * exp(-conr * rpm_rc_age)
-    bio_hum_ract = bio_hum * exp(-conr * bio_rc_age)
-    hum_hum_ract = hum_hum * exp(-conr * hum_rc_age)
-
-    iom_ract = iom * exp(-conr * iom_age)
-
-    pi_dpm_ract = modern_c * pi_c_dpm
-    pi_rpm_ract = modern_c * pi_c_rpm
-
-    fym_dpm_ract = modern_c * fym_c_dpm
-    fym_rpm_ract = modern_c * fym_c_rpm
-    fym_hum_ract = modern_c * fym_c_hum
-
-    dpm_ract_new = fym_dpm_ract + pi_dpm_ract + dpm_ract * exc
-    rpm_ract_new = fym_rpm_ract + pi_rpm_ract + rpm_ract * exc
-
-    bio_ract_new = (
-        bio_ract + dpm_bio_ract + rpm_bio_ract + bio_bio_ract + hum_bio_ract
-    ) * exc
-
-    hum_ract_new = (
-        fym_hum_ract
-        + (hum_ract + dpm_hum_ract + rpm_hum_ract + bio_hum_ract + hum_hum_ract) * exc
-    )
-
-    soc_new = dpm_new + rpm_new + bio_new + hum_new + iom
-
-    total_ract = dpm_ract_new + rpm_ract_new + bio_ract_new + hum_ract_new + iom_ract
-
-    dpm_rc_age_new = calculate_radiocarbon_age(dpm_new, dpm_ract_new, conr)
-    rpm_rc_age_new = calculate_radiocarbon_age(rpm_new, rpm_ract_new, conr)
-    bio_rc_age_new = calculate_radiocarbon_age(bio_new, bio_ract_new, conr)
-    hum_rc_age_new = calculate_radiocarbon_age(hum_new, hum_ract_new, conr)
-    total_rc_age_new = calculate_radiocarbon_age(soc_new, total_ract, conr)
-
-    return CarbonState(
-        dpm=dpm_new,
-        rpm=rpm_new,
-        bio=bio_new,
-        hum=hum_new,
-        iom=iom,
-        soc=soc_new,
-        dpm_rc_age=dpm_rc_age_new,
-        rpm_rc_age=rpm_rc_age_new,
-        bio_rc_age=bio_rc_age_new,
-        hum_rc_age=hum_rc_age_new,
-        iom_age=iom_age,
-        total_rc_age=total_rc_age_new,
-        swc=state.swc,
-    )
+from rothc_py.containers import CarbonState, InputData, RothCParams
 
 
 # =============================================================================
@@ -340,15 +49,301 @@ class RothC:
     A class-based implementation of the RothC soil carbon model.
 
     Parameters:
-        clay: Clay content of the soil (%).
-        depth: Depth of topsoil (cm).
-        iom: Inert organic matter (t C/ha).
+        params: Model and site configuration parameters.
     """
 
-    def __init__(self, clay: float, depth: float, iom: float) -> None:
-        self.clay = clay
-        self.depth = depth
-        self.iom = iom
+    def __init__(self, params: RothCParams) -> None:
+        self.params = params
+
+    def temperature_rate_modifier(self, temp: float) -> float:
+        """Calculate the rate modifying factor for temperature.
+
+        Uses the Jenkinson equation to calculate the temperature rate modifier
+        based on monthly mean air temperature.
+
+        Args:
+            temp: Monthly mean air temperature (°C).
+
+        Returns:
+            Rate modifying factor for temperature (typically 0.0 to ~5.0).
+        """
+        return (
+            JENKINSON_A / (exp(JENKINSON_B / (temp + JENKINSON_C)) + 1.0)
+            if temp > TEMP_MIN
+            else 0.0
+        )
+
+    def moisture_rate_modifier(
+        self,
+        rain: float,
+        pevap: float,
+        pc: bool,
+        swc: float,
+    ) -> tuple[float, float]:
+        """Calculate the rate modifying factor for moisture.
+
+        Calculates soil moisture deficit and derives a rate modifier based on
+        the soil water balance, accounting for rainfall, evaporation, and
+        plant cover.
+
+        Args:
+            rain: Monthly rainfall (mm).
+            pevap: Open pan evaporation (mm).
+            pc: Plant cover (False = no cover, True = covered).
+            swc: Soil water content/deficit (mm).
+
+        Returns:
+            Tuple of (rate modifying factor for moisture, updated swc).
+            rm_moist is typically between 0.2 and 1.0.
+        """
+        clay = self.params.clay
+        depth = self.params.depth
+
+        smd_max = -(SMD_COEFF_A + SMD_COEFF_B * clay - SMD_COEFF_C * (clay * clay))
+        smd_max_adj = smd_max * depth / SMD_DEPTH_DIVISOR
+        smd_1bar = SMD_1BAR_FRAC * smd_max_adj
+        smd_bare = SMD_BARE_FRAC * smd_max_adj
+
+        df = rain - self.params.evap_factor * pevap
+
+        min_swc_df = min(0.0, swc + df)
+
+        if pc:
+            swc_new = max(smd_max_adj, min_swc_df)
+        else:
+            min_smd_bare_swc = min(smd_bare, swc)
+            swc_new = max(min_smd_bare_swc, min_swc_df)
+
+        if swc_new > smd_1bar:
+            rm_moist = RMF_MOIST_MAX
+        else:
+            rm_moist = RMF_MOIST_MIN + (RMF_MOIST_MAX - RMF_MOIST_MIN) * (
+                smd_max_adj - swc_new
+            ) / (smd_max_adj - smd_1bar)
+
+        return rm_moist, swc_new
+
+    def plant_cover_rate_modifier(self, pc: bool) -> float:
+        """Calculate the plant retainment modifying factor.
+
+        Returns a reduced rate when the soil is covered by vegetation,
+        representing reduced decomposition due to litter retention.
+
+        Args:
+            pc: Plant cover (False = no cover/bare soil, True = covered by crop).
+
+        Returns:
+            Rate modifying factor: 1.0 for bare soil, 0.6 for covered soil.
+        """
+        return RMF_PC_COVERED if pc else RMF_PC_BARE
+
+    def decompose_single_pool(
+        self, pool: float, rate_k: float, rate_m: float, tstep: float
+    ) -> tuple[float, float]:
+        """Decompose a carbon pool using first-order decay kinetics.
+
+        Args:
+            pool: Carbon pool size (t C/ha).
+            rate_k: Decomposition rate constant for this pool (per year).
+            rate_m: Combined rate modifier (temperature × moisture × plant cover).
+            tstep: Timestep (1/12 for monthly, 1/365 for daily).
+
+        Returns:
+            Tuple of (remaining_pool, decomposed_amount).
+        """
+        remaining = pool * exp(-rate_m * rate_k * tstep)
+        decomposed = pool - remaining
+        return remaining, decomposed
+
+    def partition_carbon_flows(
+        self, decomposed: float, x: float
+    ) -> tuple[float, float, float]:
+        """Partition decomposed carbon into CO2, BIO, and HUM fractions.
+
+        The partitioning coefficient x depends on clay content and determines
+        the proportion lost as CO2 vs incorporated into biomass/humus.
+
+        Args:
+            decomposed: Amount of carbon decomposed (t C/ha).
+            x: Clay-dependent partitioning coefficient.
+
+        Returns:
+            Tuple of (co2, bio, hum) carbon amounts.
+        """
+        total = x + 1
+        co2 = decomposed * (x / total)
+        bio = decomposed * (FRAC_TO_BIO / total)
+        hum = decomposed * (FRAC_TO_HUM / total)
+        return co2, bio, hum
+
+    def calculate_radiocarbon_age(
+        self, pool_new: float, ract_new: float, conr: float
+    ) -> float:
+        """Calculate radiocarbon age from pool size and activity.
+
+        Uses the radioactive decay equation inverted to solve for age:
+        age = -ln(remaining/initial) / lambda
+        where lambda = ln(2) / half_life
+
+        Args:
+            pool_new: Current pool size (t C/ha).
+            ract_new: Radiocarbon activity (modern C equivalents).
+            conr: Decay constant (1/mean_lifetime).
+
+        Returns:
+            Radiocarbon age in years.
+        """
+        return (
+            log(pool_new / ract_new) / conr
+            if pool_new > self.params.zero_threshold
+            else self.params.zero_threshold
+        )
+
+    def decompose_pools(
+        self,
+        state: CarbonState,
+        modern_c: float,
+        rate_m: float,
+        c_inp: float,
+        fym_inp: float,
+        dpm_rpm: float,
+    ) -> CarbonState:
+        """Calculate decomposition and radiocarbon age for soil carbon pools.
+
+        Performs monthly carbon pool updates including: first-order decay
+        kinetics, carbon flow between pools (DPM, RPM, BIO, HUM), CO2
+        respiration, and radiocarbon age calculations.
+
+        Args:
+            state: Current carbon state (pools and ages).
+            modern_c: Fraction of modern carbon (0.0 to 1.0).
+            rate_m: Combined rate modifier.
+            c_inp: Plant carbon input (t C/ha).
+            fym_inp: Farmyard manure carbon input (t C/ha).
+            dpm_rpm: Ratio of DPM to RPM in plant inputs.
+
+        Returns:
+            Tuple of (updated CarbonState, total CO2 respired this timestep in t C/ha).
+        """
+        dpm = state.dpm
+        rpm = state.rpm
+        bio = state.bio
+        hum = state.hum
+        iom = state.iom
+        dpm_rc_age = state.dpm_rc_age
+        rpm_rc_age = state.rpm_rc_age
+        bio_rc_age = state.bio_rc_age
+        hum_rc_age = state.hum_rc_age
+        iom_age = state.iom_age
+
+        conr = log(2.0) / RADIO_HALFLIFE
+
+        tstep = 1.0 / MONTHS_PER_YEAR
+
+        exc = exp(-conr * tstep)
+
+        dpm1, dpm_d = self.decompose_single_pool(
+            dpm, self.params.dpm_rate, rate_m, tstep
+        )
+        rpm1, rpm_d = self.decompose_single_pool(
+            rpm, self.params.rpm_rate, rate_m, tstep
+        )
+        bio1, bio_d = self.decompose_single_pool(
+            bio, self.params.bio_rate, rate_m, tstep
+        )
+        hum1, hum_d = self.decompose_single_pool(
+            hum, self.params.hum_rate, rate_m, tstep
+        )
+
+        x = CLAW_A * (CLAW_B + CLAW_C * exp(-CLAW_D * self.params.clay))
+
+        co2_dpm, dpm_bio, dpm_hum = self.partition_carbon_flows(dpm_d, x)
+        co2_rpm, rpm_bio, rpm_hum = self.partition_carbon_flows(rpm_d, x)
+        co2_bio, bio_bio, bio_hum = self.partition_carbon_flows(bio_d, x)
+        co2_hum, hum_bio, hum_hum = self.partition_carbon_flows(hum_d, x)
+
+        total_co2 = co2_dpm + co2_rpm + co2_bio + co2_hum
+
+        dpm_new = dpm1
+        rpm_new = rpm1
+        bio_new = bio1 + dpm_bio + rpm_bio + bio_bio + hum_bio
+        hum_new = hum1 + dpm_hum + rpm_hum + bio_hum + hum_hum
+
+        pi_c_dpm = dpm_rpm / (dpm_rpm + 1.0) * c_inp
+        pi_c_rpm = 1.0 / (dpm_rpm + 1.0) * c_inp
+
+        fym_c_dpm = FYM_FRAC_DPM * fym_inp
+        fym_c_rpm = FYM_FRAC_RPM * fym_inp
+        fym_c_hum = FYM_FRAC_HUM * fym_inp
+
+        dpm_new = dpm_new + pi_c_dpm + fym_c_dpm
+        rpm_new = rpm_new + pi_c_rpm + fym_c_rpm
+        hum_new = hum_new + fym_c_hum
+
+        dpm_ract = dpm1 * exp(-conr * dpm_rc_age)
+        rpm_ract = rpm1 * exp(-conr * rpm_rc_age)
+
+        bio_ract = bio1 * exp(-conr * bio_rc_age)
+        dpm_bio_ract = dpm_bio * exp(-conr * dpm_rc_age)
+        rpm_bio_ract = rpm_bio * exp(-conr * rpm_rc_age)
+        bio_bio_ract = bio_bio * exp(-conr * bio_rc_age)
+        hum_bio_ract = hum_bio * exp(-conr * hum_rc_age)
+
+        hum_ract = hum1 * exp(-conr * hum_rc_age)
+        dpm_hum_ract = dpm_hum * exp(-conr * dpm_rc_age)
+        rpm_hum_ract = rpm_hum * exp(-conr * rpm_rc_age)
+        bio_hum_ract = bio_hum * exp(-conr * bio_rc_age)
+        hum_hum_ract = hum_hum * exp(-conr * hum_rc_age)
+
+        iom_ract = iom * exp(-conr * iom_age)
+
+        pi_dpm_ract = modern_c * pi_c_dpm
+        pi_rpm_ract = modern_c * pi_c_rpm
+
+        fym_dpm_ract = modern_c * fym_c_dpm
+        fym_rpm_ract = modern_c * fym_c_rpm
+        fym_hum_ract = modern_c * fym_c_hum
+
+        dpm_ract_new = fym_dpm_ract + pi_dpm_ract + dpm_ract * exc
+        rpm_ract_new = fym_rpm_ract + pi_rpm_ract + rpm_ract * exc
+
+        bio_ract_new = (
+            bio_ract + dpm_bio_ract + rpm_bio_ract + bio_bio_ract + hum_bio_ract
+        ) * exc
+
+        hum_ract_new = (
+            fym_hum_ract
+            + (hum_ract + dpm_hum_ract + rpm_hum_ract + bio_hum_ract + hum_hum_ract)
+            * exc
+        )
+
+        soc_new = dpm_new + rpm_new + bio_new + hum_new + iom
+
+        total_ract = (
+            dpm_ract_new + rpm_ract_new + bio_ract_new + hum_ract_new + iom_ract
+        )
+
+        dpm_rc_age_new = self.calculate_radiocarbon_age(dpm_new, dpm_ract_new, conr)
+        rpm_rc_age_new = self.calculate_radiocarbon_age(rpm_new, rpm_ract_new, conr)
+        bio_rc_age_new = self.calculate_radiocarbon_age(bio_new, bio_ract_new, conr)
+        hum_rc_age_new = self.calculate_radiocarbon_age(hum_new, hum_ract_new, conr)
+        total_rc_age_new = self.calculate_radiocarbon_age(soc_new, total_ract, conr)
+
+        return CarbonState(
+            dpm=dpm_new,
+            rpm=rpm_new,
+            bio=bio_new,
+            hum=hum_new,
+            iom=iom,
+            soc=soc_new,
+            dpm_rc_age=dpm_rc_age_new,
+            rpm_rc_age=rpm_rc_age_new,
+            bio_rc_age=bio_rc_age_new,
+            hum_rc_age=hum_rc_age_new,
+            iom_age=iom_age,
+            total_rc_age=total_rc_age_new,
+            swc=state.swc,
+        ), total_co2
 
     def run_timestep(
         self,
@@ -361,7 +356,7 @@ class RothC:
         c_inp: float,
         fym_inp: float,
         modern_c: float,
-    ) -> CarbonState:
+    ) -> tuple[CarbonState, float]:
         """Run one timestep of the RothC model.
 
         Calculates rate modifying factors for temperature, moisture, and plant
@@ -379,21 +374,18 @@ class RothC:
             modern_c: Fraction of modern carbon (0.0 to 1.0).
 
         Returns:
-            Updated CarbonState.
+            Tuple of (updated CarbonState, total CO2 respired this timestep in t C/ha).
         """
-        rm_tmp = temperature_rate_modifier(temp)
-        rm_moist, swc = moisture_rate_modifier(
-            rain, pevap, self.clay, self.depth, pc, state.swc
-        )
-        rm_pc = plant_cover_rate_modifier(pc)
+        rm_tmp = self.temperature_rate_modifier(temp)
+        rm_moist, swc = self.moisture_rate_modifier(rain, pevap, pc, state.swc)
+        rm_pc = self.plant_cover_rate_modifier(pc)
 
         rate_m = rm_tmp * rm_moist * rm_pc
 
-        new_state = decompose_pools(
+        new_state, co2 = self.decompose_pools(
             state,
             modern_c,
             rate_m,
-            self.clay,
             c_inp,
             fym_inp,
             dpm_rpm,
@@ -401,7 +393,7 @@ class RothC:
 
         new_state.swc = swc
 
-        return new_state
+        return new_state, co2
 
     def spin_up(self, data: InputData) -> tuple[CarbonState, int]:
         """Spin up the RothC model to equilibrium.
@@ -416,7 +408,7 @@ class RothC:
             Tuple of (final carbon state at equilibrium, n_cycles).
         """
         state = CarbonState.zero()
-        state.iom = self.iom
+        state.iom = self.params.iom
 
         months_per_cycle = len(data["t_tmp"])
         if months_per_cycle % 12 != 0:
@@ -449,7 +441,7 @@ class RothC:
                 fym_inp,
                 modern_c,
             ) in data_iterator():
-                state = self.run_timestep(
+                state, _ = self.run_timestep(
                     state,
                     temp,
                     rain,
@@ -464,7 +456,10 @@ class RothC:
             toc_after_cycle = state.dpm + state.rpm + state.bio + state.hum
             n_cycles += 1
 
-            if abs(toc_after_cycle - toc_before_cycle) < EQUILIBRIUM_THRESHOLD:
+            if (
+                abs(toc_after_cycle - toc_before_cycle)
+                < self.params.equilibrium_threshold
+            ):
                 logging.info(
                     f"Spin-up converged after {n_cycles} cycles ({n_cycles * months_per_cycle} iterations)"
                 )
@@ -493,6 +488,7 @@ class RothC:
             "HUM_t_C_ha": [],
             "IOM_t_C_ha": [],
             "SOC_t_C_ha": [],
+            "CO2_t_C_ha": [],
             "deltaC": [],
         }
 
@@ -516,7 +512,7 @@ class RothC:
 
             modern_c = data["t_mod"][i] / 100.0
 
-            state = self.run_timestep(
+            state, co2 = self.run_timestep(
                 state,
                 temp,
                 rain,
@@ -538,6 +534,7 @@ class RothC:
             month_results["HUM_t_C_ha"].append(state.hum)
             month_results["IOM_t_C_ha"].append(state.iom)
             month_results["SOC_t_C_ha"].append(state.soc)
+            month_results["CO2_t_C_ha"].append(co2)
             month_results["deltaC"].append(total_delta)
 
         return state, month_results
